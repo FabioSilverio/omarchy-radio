@@ -83,6 +83,49 @@ test("radios publicadas aparecem em qualquer navegador (admin local tem preceden
   assert.ok(cli.includes('"/stations"') || cli.includes("/stations"), "ponte /stations presente");
 });
 
+test("dados: toda radio oficial e publicada tem 100+ faixas validas e unicas", () => {
+  const load = (file) => {
+    const w = {};
+    new Function("window", readFileSync(join(root, file), "utf8"))(w);
+    return w;
+  };
+  const td = load("tracks-data.js").TRACKS_DATA;
+  for (const [key, tracks] of Object.entries(td)) {
+    assert.ok(tracks.length >= 100, `${key} tem 100+ faixas (${tracks.length})`);
+    const ids = tracks.map(t => t[2]);
+    assert.equal(new Set(ids).size, ids.length, `${key} sem IDs duplicados`);
+    assert.ok(ids.every(id => /^[A-Za-z0-9_-]{11}$/.test(id)), `${key} so IDs validos`);
+  }
+  const cs = load("custom-stations.js").CUSTOM_STATIONS;
+  assert.ok(cs.length >= 2, "Natal e Olivia publicadas");
+  for (const s of cs) {
+    assert.ok(s.tracks.length >= 100, `${s.name} tem 100+ faixas (${s.tracks.length})`);
+    const ids = s.tracks.map(t => t.id);
+    assert.equal(new Set(ids).size, ids.length, `${s.name} sem IDs duplicados`);
+    assert.ok(ids.every(id => /^[A-Za-z0-9_-]{11}$/.test(id)), `${s.name} so IDs validos`);
+  }
+});
+
+test("faixa adicionada numa radio publicada nao se perde (extraTracks aplicado)", () => {
+  const applies = (html.match(/tracks:s\.tracks\.concat\(extraTracks\[s\.id\]\|\|\[\]\)/g) || []).length;
+  assert.ok(applies >= 2, "extraTracks aplicado nas oficiais E nas publicadas");
+  assert.ok(html.includes("function sanitizeImportedTracks"), "importacao por link valida as faixas");
+});
+
+test("prefetch sem ads expira e SW so cacheia resposta boa", () => {
+  assert.ok(html.includes("entry.at"), "prefetch guarda quando foi resolvido");
+  assert.ok(html.includes("PREFETCH_TTL"), "prefetch tem validade");
+  const sw = readFileSync(join(root, "sw.js"), "utf8");
+  assert.ok(/res\.ok|status===200/.test(sw), "SW nao cacheia 404/erro");
+});
+
+test("terminal toca Natal e Olivia (radios publicadas), nao so as oficiais", () => {
+  const cli = readFileSync(join(root, "cli", "radio"), "utf8");
+  assert.ok(cli.includes("custom-stations.js"), "CLI baixa as radios publicadas");
+  assert.ok(cli.includes("oliviarodrigo"), "atalho olivia no CLI");
+  assert.ok(cli.includes("CUSTOM_CACHE"), "CLI cacheia as publicadas");
+});
+
 test("radio on sorteia entre tops, tiktok e natal", () => {
   const cli = readFileSync(join(root, "cli", "radio"), "utf8");
   assert.ok(/^cmd_radio_on\(\)/m.test(cli), "cmd_radio_on presente");

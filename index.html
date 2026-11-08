@@ -448,7 +448,8 @@ function allStations(){
   /* publicadas aparecem em qualquer navegador; se voce tem a mesma radio aqui
      (editada neste navegador), a sua copia local manda — voce e o admin */
   const used=new Set(local.map(s=>normText(s.name)).filter(Boolean));
-  const published=PUBLISHED.filter(s=>!used.has(normText(s.name)));
+  const published=PUBLISHED.filter(s=>!used.has(normText(s.name)))
+    .map(s=>({...s,tracks:s.tracks.concat(extraTracks[s.id]||[])}));
   return local.concat(published, favorites.length?[favStation()]:[]);
 }
 function stationById(id){ if(id==="favs") return favStation(); return allStations().find(s=>s.id===id); }
@@ -458,6 +459,7 @@ function findStation(ref){
   const q=normText(ref); if(!q) return null;
   const list=allStations().filter(s=>s.id!=="favs");
   return list.find(s=>normText(s.name)===q)
+      || list.find(s=>normText(s.name).replace(/ /g,"")===q.replace(/ /g,""))
       || list.find(s=>normText(s.id)===q)
       || list.find(s=>{ const n=normText(s.name); return !!n&&(n.includes(q)||q.includes(n)); })
       || null;
@@ -466,6 +468,13 @@ function extractId(input){
   if(!input) return null; input=String(input).trim();
   const m=input.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
   if(m) return m[1]; if(/^[A-Za-z0-9_-]{11}$/.test(input)) return input; return null;
+}
+function sanitizeImportedTracks(list){
+  if(!Array.isArray(list)) return [];
+  const seen=new Set();
+  return list.filter(t=>t&&/^[A-Za-z0-9_-]{11}$/.test(String(t.id||""))&&!seen.has(String(t.id))&&seen.add(String(t.id)))
+    .slice(0,300)
+    .map(t=>({artist:String(t.artist||"Faixa").slice(0,60),title:String(t.title||"Faixa").slice(0,90),id:String(t.id)}));
 }
 function parseTrackLine(line,idx){
   const parts=line.split("|").map(x=>x.trim());
@@ -565,6 +574,7 @@ function tryAdFree(seq,track){
 }
 /* ===== SEM ADS rapido: prepara a proxima enquanto a atual toca ===== */
 let fastStartPending=false;
+const PREFETCH_TTL=15*60*1000; /* link de audio preparado vence; depois resolve de novo */
 const prefetchCache=new Map();
 const waitMs=ms=>new Promise(r=>setTimeout(()=>r(null),ms));
 async function resolveAdFreeUrl(track){
@@ -582,11 +592,13 @@ async function resolveAdFreeUrl(track){
   return url?{kind:"alt",url}:null;
 }
 function ensurePrefetch(track){
-  if(prefetchCache.has(track.id)) return prefetchCache.get(track.id);
-  const entry={url:null,kind:null,promise:null};
+  const old=prefetchCache.get(track.id);
+  if(old&&Date.now()-(old.at||0)<=PREFETCH_TTL) return old;
+  if(old) prefetchCache.delete(track.id);
+  const entry={url:null,kind:null,promise:null,at:Date.now()};
   entry.promise=resolveAdFreeUrl(track).then(res=>{
     if(res){
-      entry.url=res.url; entry.kind=res.kind;
+      entry.url=res.url; entry.kind=res.kind; entry.at=Date.now();
       try{ const pa=$("#prefetch-audio"); if(pa&&pa.src!==res.url){ pa.src=res.url; pa.load(); } }catch(e){}
       log("faixa preparada sem comerciais: "+track.title,"ok");
     }
@@ -608,7 +620,8 @@ function playPrefetched(seq,track,entry){
     ()=>attemptYouTube(seq,track.id,()=>tryReplacement(seq,track)));
 }
 function playAdFreeSmart(seq,track){
-  const entry=prefetchCache.get(track.id);
+  let entry=prefetchCache.get(track.id);
+  if(entry&&Date.now()-(entry.at||0)>PREFETCH_TTL){ prefetchCache.delete(track.id); entry=null; }
   if(entry&&entry.url){ playPrefetched(seq,track,entry); return; }
   if(entry&&entry.promise){
     source="loading"; updatePlayerUI();
@@ -1042,7 +1055,11 @@ function maybeVinheta(done){
 function advanceNext(){
   if(currentStation&&currentStation._oneshot){ playing=false; source="none"; updatePlayerUI(); $("#way-status").textContent="rádio parada"; log("fim da busca do youtube"); return; }
   const usable=usableTracks(currentStation);
-  if(!queue.length) queue=shuffled(usable);
+  if(!queue.length){
+    queue=shuffled(usable);
+    /* fila nova nao comeca repetindo a faixa que acabou de tocar */
+    if(queue.length>1&&current&&queue[0].id===current.id) queue.push(queue.shift());
+  }
   queue=queue.filter(t=>!isBad(t.id)&&!isBanned(currentStation.id,t.id));
   if(!queue.length){ playing=false; source="none"; updatePlayerUI(); toast("Sem faixas disponíveis nesta rádio agora"); log("fila vazia — todas falharam ou foram bloqueadas","err"); return; }
   const nx=queue.shift();
@@ -1429,7 +1446,7 @@ document.addEventListener("keydown",e=>{
   else if(e.key==="f") $("#c-fav").click();
   else if(e.key==="ArrowRight") seekBy(10);
   else if(e.key==="ArrowLeft") seekBy(-10);
-  else if(e.key==="m"){ settings.vol=settings.vol?0:80; $("#vol").value=settings.vol; if(ytReady&&yt) try{yt.setVolume(settings.vol)}catch(err){} audioEl.volume=settings.vol/100; }
+  else if(e.key==="m"){ if(settings.vol>0){ settings._prevVol=settings.vol; settings.vol=0; } else settings.vol=settings._prevVol||80; $("#vol").value=settings.vol; store.set("omarchy:settings",settings); if(ytReady&&yt) try{yt.setVolume(settings.vol)}catch(err){} audioEl.volume=settings.vol/100; }
 });
 /* ===== busca no YouTube (campo de busca) ===== */
 function onSearchInput(val){
@@ -1596,7 +1613,9 @@ if(_qs.get("station")){ const s=stationById(_qs.get("station")); if(s) openDetai
 if(location.hash.startsWith("#import=")){
   try{
     const data=JSON.parse(decodeURIComponent(escape(atob(location.hash.slice(8)))));
-    if(data&&data.name&&Array.isArray(data.tracks)&&data.tracks.length){
+    if(data) data.tracks=sanitizeImportedTracks(data.tracks);
+    if(data&&data.name&&data.tracks.length){
+      data.name=String(data.name).slice(0,80); data.desc=String(data.desc||"").slice(0,200); data.slogan=String(data.slogan||("Você está ouvindo "+data.name+", na Omarchy Radio.")).slice(0,160);
       data.id="custom-"+Date.now(); data.custom=true;
       if(!customStations.some(s=>s.name===data.name)){ customStations.push(data); store.set("omarchy:custom",customStations); renderGrid(); renderSidebar(); }
       openDetail(data.id); toast("Rádio importada pelo link: "+data.name);

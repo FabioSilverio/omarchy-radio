@@ -11,9 +11,11 @@ mkdir -p "$STATE"
 QUEUE="$STATE/queue.tsv"; CURRENT="$STATE/current"; STATION_FILE="$STATE/station"
 LOOP_PID_FILE="$STATE/loop.pid"; SOCK="$STATE/mpv.sock"; LOG="$STATE/player.log"
 DATA_CACHE="$STATE/tracks-data.js"; VOL_FILE="$STATE/volume"
+CUSTOM_URL="${RADIO_CUSTOM_URL:-https://fabiosilverio.github.io/omarchy-radio/custom-stations.js}"
+CUSTOM_CACHE="$STATE/custom-stations.js"
 [ -f "$VOL_FILE" ] || echo 80 > "$VOL_FILE"
 
-STATIONS_HELP="jonas | tiktok | 2010 | tops"
+STATIONS_HELP="jonas | tiktok | 2010 | tops | natal | olivia"
 
 station_key() {
   case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
@@ -22,6 +24,7 @@ station_key() {
     2010|hits2010|hits) echo hits2010 ;;
     tops|alltime|maiores|historicas) echo alltime ;;
     natal|natalino|natalinos|christmas|xmas|noel) echo natal ;;
+    olivia|oliviarodrigo|rodrigo|olivia-rodrigo) echo oliviarodrigo ;;
     *) echo "" ;;
   esac
 }
@@ -33,6 +36,8 @@ station_name() {
     hits2010) echo "Hits 2010" ;;
     alltime) echo "Mais Ouvidas de Todos os Tempos" ;;
     natal) echo "Natal" ;;
+    oliviarodrigo) echo "Olivia Rodrigo" ;;
+    *) echo "$1" ;;
   esac
 }
 station_slogan() {
@@ -43,6 +48,8 @@ station_slogan() {
     hits2010) echo "Você está ouvindo Hits 2010, na Omarchy Radio." ;;
     alltime) echo "Você está ouvindo as Mais Ouvidas de Todos os Tempos, na Omarchy Radio." ;;
     natal) echo "Você está ouvindo Natal, na Omarchy Radio." ;;
+    oliviarodrigo) echo "Você está ouvindo Olivia Rodrigo, na Omarchy Radio." ;;
+    *) echo "Você está ouvindo Omarchy Radio." ;;
   esac
 }
 
@@ -85,24 +92,56 @@ fetch_data() {
   if curl -fsSL -m 20 "$DATA_URL" -o "$DATA_CACHE.tmp" 2>/dev/null && [ -s "$DATA_CACHE.tmp" ]; then
     mv "$DATA_CACHE.tmp" "$DATA_CACHE"
   fi
-  [ -s "$DATA_CACHE" ] || { echo "Sem internet e sem cache de faixas. Conecte e tente de novo." >&2; exit 1; }
+  # radios publicadas do admin (Natal, Olivia...) tambem tocam no terminal
+  if curl -fsSL -m 20 "$CUSTOM_URL" -o "$CUSTOM_CACHE.tmp" 2>/dev/null && [ -s "$CUSTOM_CACHE.tmp" ]; then
+    mv "$CUSTOM_CACHE.tmp" "$CUSTOM_CACHE"
+  fi
+  [ -s "$DATA_CACHE" ] || [ -s "$CUSTOM_CACHE" ] || { echo "Sem internet e sem cache de faixas. Conecte e tente de novo." >&2; exit 1; }
+}
+
+# Faixas da estacao (oficiais + publicadas): vid <tab> artista <tab> titulo
+tracks_for_key() {
+  python3 - "$DATA_CACHE" "$CUSTOM_CACHE" "$1" <<'PY'
+import json, re, sys, unicodedata
+def slug(s):
+    s = unicodedata.normalize("NFD", str(s or "").lower())
+    return re.sub(r"[^a-z0-9]", "", "".join(c for c in s if not unicodedata.combining(c)))
+key = slug(sys.argv[3])
+rows = []
+try:
+    raw = open(sys.argv[1], encoding="utf-8").read()
+    data = json.loads(raw[raw.index("{"):raw.rindex(";")])
+    rows = [list(t) for t in data.get(sys.argv[3], []) if len(t) == 3]
+except Exception:
+    rows = []
+if not rows:
+    try:
+        raw = open(sys.argv[2], encoding="utf-8").read()
+        stations = json.loads(raw[raw.index("["):raw.rindex("]") + 1])
+        for st in stations:
+            if slug(st.get("name")) == key or slug(st.get("id")) == key:
+                rows = [[t.get("artist", ""), t.get("title", ""), t.get("id", "")]
+                        for t in st.get("tracks", []) if t.get("id")]
+                break
+    except Exception:
+        rows = []
+for artist, title, vid in rows:
+    if vid: print(f"{vid}\t{artist}\t{title}")
+PY
 }
 
 # Gera a fila embaralhada da estacao: id <tab> artista <tab> titulo
 make_queue() {
-  python3 - "$DATA_CACHE" "$1" "${2:-}" <<'PY'
-import json, random, sys
-raw = open(sys.argv[1], encoding="utf-8").read()
-data = json.loads(raw[raw.index("{"):raw.rindex(";")])
-tracks = data.get(sys.argv[2], [])
-rows = [t for t in tracks if len(t) == 3]
+  tracks_for_key "$1" | python3 -c '
+import random, sys
+rows = [l.rstrip("\n").split("\t") for l in sys.stdin if "\t" in l]
 random.shuffle(rows)
-first = sys.argv[3]
+first = sys.argv[1] if len(sys.argv) > 1 else ""
 if first:
-    rows.sort(key=lambda t: 0 if t[2] == first else 1)
-for artist, title, vid in rows:
+    rows.sort(key=lambda t: 0 if t[0] == first else 1)
+for vid, artist, title in rows:
     print(f"{vid}\t{artist}\t{title}")
-PY
+' "${2:-}"
 }
 
 mpv_ipc() { # $1 = JSON do comando mpv
@@ -181,7 +220,12 @@ loop_player() {
   echo $$ > "$LOOP_PID_FILE"
   trap 'rm -f "$LOOP_PID_FILE" "$SOCK"; exit 0' TERM INT
   while :; do
-    [ -s "$QUEUE" ] || make_queue "$station" > "$QUEUE"
+    if [ "$station" = playlist ]; then
+      [ -s "$QUEUE" ] || shuf "$STATE/playlist.tsv" > "$QUEUE" 2>/dev/null
+    else
+      [ -s "$QUEUE" ] || make_queue "$station" > "$QUEUE"
+    fi
+    [ -s "$QUEUE" ] || { echo "Sem faixas para tocar nesta rádio." >&2; sleep 5; continue; }
     mapfile -t _lines < "$QUEUE"
     for i in "${!_lines[@]}"; do
       IFS=$'\t' read -r id artist title <<< "${_lines[$i]}"
@@ -243,16 +287,8 @@ cmd_stop() {
 }
 
 station_has_tracks() { # $1 = chave da radio; 0 se existem faixas nos dados locais
-  [ -f "$DATA_CACHE" ] || return 1
-  python3 - "$DATA_CACHE" "$1" <<'PY'
-import json, sys
-try:
-    raw = open(sys.argv[1], encoding="utf-8").read()
-    data = json.loads(raw[raw.index("{"):raw.rindex(";")])
-except Exception:
-    sys.exit(1)
-sys.exit(0 if data.get(sys.argv[2]) else 1)
-PY
+  [ -f "$DATA_CACHE" ] || [ -f "$CUSTOM_CACHE" ] || return 1
+  [ -n "$(tracks_for_key "$1" | head -1)" ]
 }
 
 cmd_radio_on() {
@@ -585,6 +621,8 @@ omarchy-radio no terminal — as rádios de $SITE_URL
   radio tiktok           toca Hits no TikTok Hoje
   radio 2010             toca Hits 2010
   radio tops             toca Mais Ouvidas de Todos os Tempos
+  radio natal            toca Natal (publicada)
+  radio olivia           toca Olivia Rodrigo (publicada)
   radio toca <busca>     toca a primeira música que bater com a busca
   radio busca <busca>    lista músicas que batem com a busca
   radio status           o que está tocando agora
@@ -610,11 +648,11 @@ case "${1:-}" in
   _bridge) cmd_bridge ;;
   ""|menu)
     if [ -t 0 ] && command -v fzf >/dev/null 2>&1; then
-      choice=$(printf 'jonas — Jonas Brothers Radio\ntiktok — Hits no TikTok Hoje\n2010 — Hits 2010\ntops — Mais Ouvidas de Todos os Tempos\n' | fzf --prompt='radio> ' --height=8) || exit 0
+      choice=$(printf 'jonas — Jonas Brothers Radio\ntiktok — Hits no TikTok Hoje\n2010 — Hits 2010\ntops — Mais Ouvidas de Todos os Tempos\nnatal — Natal\nolivia — Olivia Rodrigo\n' | fzf --prompt='radio> ' --height=10) || exit 0
       cmd_start "${choice%% *}"
     else usage; fi ;;
   on|aleatoria|aleatorio|random|qualquer) cmd_radio_on ;;
-  jonas|tiktok|2010|hits2010|tops|alltime) cmd_start "$1" ;;
+  jonas|tiktok|2010|hits2010|tops|alltime|natal|natalino|christmas|olivia|oliviarodrigo|rodrigo) cmd_start "$1" ;;
   tocar|toca) shift; cmd_start "${1:?uso: radio toca <estacao-ou-busca>}" ;;
   play|retoma|continua|despausa)
     if [ -n "${2:-}" ]; then shift; cmd_start "$1"; else cmd_resume; fi ;;

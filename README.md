@@ -68,6 +68,8 @@ radio on        # rádio aleatória: tops, tiktok ou natal
 radio tiktok    # Hits no TikTok Hoje
 radio 2010      # Hits 2010
 radio tops      # Mais Ouvidas de Todos os Tempos
+radio natal     # Natal (rádio publicada)
+radio olivia    # Olivia Rodrigo (rádio publicada)
 radio sucker    # busca e toca a música (e segue na rádio dela)
 radio status    # o que está tocando
 radio prox      # próxima (já preparada, começa na hora)

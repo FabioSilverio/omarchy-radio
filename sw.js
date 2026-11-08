@@ -1,5 +1,5 @@
 /* Cacheia so a casca do app (HTML/dados/icone). Audio e YouTube: sempre rede. */
-const CACHE = "omarchy-radio-v12";
+const CACHE = "omarchy-radio-v13";
 const SHELL = ["./", "./index.html", "./tracks-data.js", "./custom-stations.js", "./manifest.webmanifest", "./icon.svg"];
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()).catch(() => {}));
@@ -12,8 +12,11 @@ self.addEventListener("fetch", e => {
   if (e.request.method !== "GET" || url.origin !== location.origin) return;
   e.respondWith(
     fetch(e.request).then(res => {
-      const copy = res.clone();
-      caches.open(CACHE).then(c => c.put(e.request, copy)).catch(() => {});
+      /* so cacheia resposta completa e boa: 404/206/erro nunca envenenam o cache */
+      if (res.ok && res.status === 200 && !e.request.headers.has("range")) {
+        const copy = res.clone();
+        caches.open(CACHE).then(c => c.put(e.request, copy)).catch(() => {});
+      }
       return res;
     }).catch(() => caches.match(e.request))
   );
