@@ -17,11 +17,18 @@ no navegador e podem ser exportadas/importadas em ⚙ Ferramentas.
 
 ## Como o áudio nunca para (cadeia de fallback)
 
-1. **YouTube oculto** (player de 4×4px invisível, só áudio)
-2. **Backend yt-dlp** (se configurado em ⚙ Ferramentas)
-3. **Fonte alternativa pública** (áudio do mesmo vídeo)
+**Modo SEM ADS (padrão, botão no player):** o player oficial do YouTube insere
+comerciais antes de algumas músicas — então a prioridade é das fontes sem
+comercial, e o YouTube vira só o último recurso:
+
+1. **Backend yt-dlp** (se configurado em ⚙ Ferramentas)
+2. **Fonte alternativa pública** (arquivo de áudio do mesmo vídeo, sem comercial)
+3. **YouTube oculto** (player de 4×4px invisível, só áudio — pode ter comercial)
 4. **Outra versão da mesma música** (busca automática)
 5. **Próxima faixa** — e a que falhou é lembrada por 24h e pulada sozinha
+
+Desligando o **SEM ADS**, a ordem inverte: YouTube primeiro (começa na hora,
+com comercial ocasional) e o resto vira fallback de falha.
 
 Ferramentas: ♥ favoritas (vira uma rádio), histórico, ⏲ sleep timer,
 ⊘ bloquear faixa na rádio, ↻ tentar de novo, compartilhar rádio por link

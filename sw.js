@@ -1,5 +1,5 @@
 /* Cacheia so a casca do app (HTML/dados/icone). Audio e YouTube: sempre rede. */
-const CACHE = "omarchy-radio-v2";
+const CACHE = "omarchy-radio-v3";
 const SHELL = ["./", "./index.html", "./tracks-data.js", "./manifest.webmanifest", "./icon.svg"];
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()).catch(() => {}));

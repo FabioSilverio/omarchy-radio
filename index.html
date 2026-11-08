@@ -223,6 +223,7 @@ input[type=range]{accent-color:var(--mauve);width:90px}
         <button id="c-fav" title="favoritar faixa atual (f)">♥</button>
         <button id="c-ban" title="não tocar esta faixa nesta rádio">⊘</button>
         <button id="c-retry" title="tentar esta faixa de novo">↻</button>
+        <button id="c-adfree" class="on" title="sem comerciais: tenta yt-dlp/fonte alternativa antes do YouTube">SEM ADS</button>
         <button id="c-vinheta" class="on" title="vinhetas ligadas/desligadas">VINHETA</button>
       </div>
       <div class="progress"><span id="t-cur">0:00</span><div id="bar"><div id="fill"></div></div><span id="t-dur">0:00</span></div>
@@ -274,6 +275,8 @@ input[type=range]{accent-color:var(--mauve);width:90px}
     <select id="s-every"><option value="2">a cada 2</option><option value="3">a cada 3</option><option value="4">a cada 4</option><option value="5">a cada 5</option></select>
     <label>Voz da vinheta</label>
     <select id="s-voice"><option value="on">ligada (TTS do navegador, pt-BR)</option><option value="off">desligada (só o aviso na tela)</option></select>
+    <label>Comerciais do YouTube</label>
+    <select id="s-adfree"><option value="on">sem comerciais primeiro (yt-dlp/alternativa → YouTube por último)</option><option value="off">YouTube primeiro (rápido, pode ter comercial)</option></select>
     <label>Suas rádios (backup)</label>
     <div class="row" style="justify-content:flex-start;margin-top:4px">
       <button class="btn" id="s-export">↓ exportar rádios (.json)</button>
@@ -327,7 +330,7 @@ let banned=store.get("omarchy:banned",{});           // stationId -> [trackId]
 let badIds=store.get("omarchy:badids",{});            // trackId -> timestamp (falhou)
 let stats=store.get("omarchy:stats",{plays:0,seconds:0});
 let playHistory=store.get("omarchy:history",[]);
-let settings=Object.assign({backend:store.get("omarchy:backend",""),every:3,voice:"on",vinheta:true,vol:80},store.get("omarchy:settings",{}));
+let settings=Object.assign({backend:store.get("omarchy:backend",""),every:3,voice:"on",vinheta:true,vol:80,adfree:true},store.get("omarchy:settings",{}));
 const _qs=new URLSearchParams(location.search);
 if(_qs.get("backend")) settings.backend=_qs.get("backend").replace(/\/$/,"");
 /* limpa badIds vencidos (24h) */
@@ -395,11 +398,45 @@ function onYtState(e){
   else if(e.data===YT.PlayerState.PAUSED){ playing=false; updatePlayerUI(); }
   else if(e.data===YT.PlayerState.ENDED){ if(endedGuard) return; endedGuard=true; log("faixa terminou"); setTimeout(()=>nextTrack(),150); }
 }
+let ytFailCb=null;
 function onYtError(e){
   if(!current) return;
   log("youtube bloqueou esta faixa (cód. "+(e&&e.data)+") — tentando outra fonte","err");
+  if(ytFailCb){ const cb=ytFailCb; ytFailCb=null; cb(); return; }
   if(current._replaced&&current._fallbackStarted){ failTrack(playSeq,{artist:current.artist,title:current.title,id:current._failedId}); return; }
   tryFallbacks(playSeq,"youtube");
+}
+function attemptYouTube(seq,videoId,failCb){
+  if(seq!==playSeq) return;
+  source="loading"; updatePlayerUI();
+  if(!ytReady||!yt){
+    clearTimeout(watchdog);
+    watchdog=setTimeout(()=>{ if(seq===playSeq&&source==="loading") failCb(); },3500);
+    const waitYt=setInterval(()=>{ if(seq!==playSeq){ clearInterval(waitYt); return; } if(ytReady&&yt){ clearInterval(waitYt); clearTimeout(watchdog); attemptYouTube(seq,videoId,failCb); } },400);
+    return;
+  }
+  ytFailCb=()=>{ if(seq===playSeq) failCb(); };
+  try{ yt.loadVideoById(videoId); yt.setVolume(settings.vol); }catch(e){ ytFailCb=null; failCb(); return; }
+  clearTimeout(watchdog);
+  watchdog=setTimeout(()=>{ if(seq===playSeq&&source==="loading"){ ytFailCb=null; log("youtube demorou demais — tentando outra fonte","warn"); failCb(); } },12000);
+}
+async function attemptAltAudio(seq,track,onFail){
+  const url=await getAltAudio(track.id).catch(()=>null);
+  if(seq!==playSeq) return;
+  if(url){
+    source="alt"; updatePlayerUI();
+    playAudioUrl(url,seq,"fonte alternativa",onFail);
+  } else onFail();
+}
+function tryAdFree(seq,track){
+  /* sem comerciais primeiro: yt-dlp -> alternativa -> youtube -> outra versao */
+  const goYouTube=()=>attemptYouTube(seq,track.id,()=>tryReplacement(seq,track));
+  const goAlt=()=>{ log("modo sem comerciais: tentando fonte alternativa..."); attemptAltAudio(seq,track,()=>{ log("sem comerciais indisponível nesta faixa — usando youtube","warn"); goYouTube(); }); };
+  if(settings.backend){
+    log("modo sem comerciais: tentando yt-dlp (backend)...");
+    source="ytdlp"; updatePlayerUI();
+    playAudioUrl(settings.backend.replace(/\/$/,"")+"/stream/"+encodeURIComponent(track.id),seq,"yt-dlp",goAlt);
+  } else goAlt();
 }
 function stopAllSources(){
   clearTimeout(watchdog); clearTimeout(audioWatchdog);
@@ -408,7 +445,7 @@ function stopAllSources(){
   if("speechSynthesis" in window){ try{speechSynthesis.cancel()}catch(e){} }
 }
 function markPlaying(){
-  playing=true; endedGuard=false;
+  playing=true; endedGuard=false; ytFailCb=null;
   if(current && current._seq===playSeq && !current._counted){
     current._counted=true; stats.plays++; store.set("omarchy:stats",stats); renderStats();
     log("▶ "+current.title+" — "+current.artist+" (via "+source+")","ok");
@@ -420,20 +457,12 @@ function markPlaying(){
 /* ===== reprodução com cadeia de fallback (nunca trava) ===== */
 function playTrack(track,station){
   const seq=++playSeq;
-  stopAllSources();
+  stopAllSources(); ytFailCb=null;
   current={artist:track.artist,title:track.title,id:track.id,stationId:station.id,stationName:station.name,_seq:seq,_counted:false,_replaced:false,_fallbackStarted:false,_failedId:track.id};
   source="loading"; playing=false; updatePlayerUI(); renderQueue(); renderGrid(); renderSidebar();
   $("#way-status").textContent="carregando: "+track.title;
-  if(ytReady&&yt){
-    try{ yt.loadVideoById(track.id); yt.setVolume(settings.vol); }catch(e){ tryFallbacks(seq,"youtube"); return; }
-    clearTimeout(watchdog);
-    watchdog=setTimeout(()=>{ if(seq===playSeq && source==="loading"){ log("youtube demorou demais — tentando outra fonte","warn"); tryFallbacks(seq,"youtube"); } },12000);
-  } else {
-    /* youtube ainda carregando: espera curta, senao cai pro fallback */
-    clearTimeout(watchdog);
-    watchdog=setTimeout(()=>{ if(seq===playSeq && source==="loading") tryFallbacks(seq,"youtube"); },3500);
-    const waitYt=setInterval(()=>{ if(seq!==playSeq){clearInterval(waitYt);return} if(ytReady&&yt){clearInterval(waitYt);clearTimeout(watchdog); playTrack(track,station);} },400);
-  }
+  if(settings.adfree) tryAdFree(seq,{artist:track.artist,title:track.title,id:track.id});
+  else attemptYouTube(seq,track.id,()=>tryFallbacks(seq,"youtube"));
 }
 let audioFailCb=null;
 audioEl.addEventListener("error",()=>{ if(audioFailCb){ const cb=audioFailCb; audioFailCb=null; cb(); } });
@@ -442,7 +471,7 @@ audioEl.addEventListener("playing",()=>{ if(source==="ytdlp"||source==="alt"){ c
 audioEl.addEventListener("pause",()=>{ if(source==="ytdlp"||source==="alt"){ playing=false; updatePlayerUI(); } });
 function playAudioUrl(url,seq,label,onFail){
   let failed=false;
-  const fail=()=>{ if(failed||seq!==playSeq) return; failed=true; audioFailCb=null; onFail(); };
+  const fail=()=>{ if(failed||seq!==playSeq) return; failed=true; audioFailCb=null; clearTimeout(audioWatchdog); onFail(); };
   audioFailCb=fail;
   clearTimeout(audioWatchdog);
   audioWatchdog=setTimeout(()=>{ if(seq===playSeq && audioEl.currentTime<1 && audioEl.readyState<3){ log(label+" demorou demais — próxima fonte","warn"); fail(); } },15000);
@@ -487,12 +516,7 @@ async function tryReplacement(seq,track){
   if(altId && altId!==track.id && !isBad(altId)){
     current._replaced=true; current.id=altId;
     log("outra versão encontrada — tocando ela","ok");
-    source="loading"; updatePlayerUI();
-    if(ytReady&&yt){
-      try{ yt.loadVideoById(altId); yt.setVolume(settings.vol); }catch(e){ failTrack(seq,track); return; }
-      clearTimeout(watchdog);
-      watchdog=setTimeout(()=>{ if(seq===playSeq&&source==="loading") failTrack(seq,track); },12000);
-    } else failTrack(seq,track);
+    attemptYouTube(seq,altId,()=>failTrack(seq,track));
   } else failTrack(seq,track);
 }
 function failTrack(seq,track){
@@ -524,7 +548,7 @@ async function getAltAudio(id){
   const instances=await getAltInstances();
   for(const inst of instances){
     try{
-      const r=await fetchTimeout(inst+"/api/v1/videos/"+encodeURIComponent(id),6000);
+      const r=await fetchTimeout(inst+"/api/v1/videos/"+encodeURIComponent(id)+"?local=true",6000);
       if(!r.ok) continue;
       const data=await r.json();
       const fmts=(data.adaptiveFormats||[]).filter(f=>(f.type||"").includes("audio")).sort((a,b)=>(b.bitrate||0)-(a.bitrate||0));
@@ -803,10 +827,11 @@ $("#d-share").onclick=async()=>{
 };
 /* ferramentas */
 $("#btn-help").onclick=()=>openModal("#modal-help");
-$("#btn-settings").onclick=()=>{ $("#s-backend").value=settings.backend||""; $("#s-every").value=String(settings.every||3); $("#s-voice").value=settings.voice||"on"; renderStats(); openModal("#modal-settings"); };
+$("#btn-settings").onclick=()=>{ $("#s-backend").value=settings.backend||""; $("#s-every").value=String(settings.every||3); $("#s-voice").value=settings.voice||"on"; $("#s-adfree").value=settings.adfree?"on":"off"; renderStats(); openModal("#modal-settings"); };
 $("#s-save").onclick=()=>{
   settings.backend=$("#s-backend").value.trim().replace(/\/$/,"");
-  settings.every=Number($("#s-every").value); settings.voice=$("#s-voice").value;
+  settings.every=Number($("#s-every").value); settings.voice=$("#s-voice").value; settings.adfree=$("#s-adfree").value==="on";
+  $("#c-adfree").classList.toggle("on",!!settings.adfree);
   store.set("omarchy:settings",settings); store.set("omarchy:backend",settings.backend);
   closeModals(); toast(settings.backend?"Backend yt-dlp salvo":"Configurações salvas");
   log(settings.backend?("backend yt-dlp: "+settings.backend):"backend yt-dlp não configurado (fontes 1 e 3 continuam ativas)","warn");
@@ -857,6 +882,7 @@ $("#c-ban").onclick=()=>{
   toast("⊘ não toca mais nesta rádio: "+current.title); log("faixa bloqueada pelo usuário: "+current.title,"warn");
   nextTrack(true);
 };
+$("#c-adfree").onclick=e=>{ settings.adfree=!settings.adfree; e.currentTarget.classList.toggle("on",settings.adfree); store.set("omarchy:settings",settings); toast(settings.adfree?"Modo sem comerciais ligado (pode demorar uns segundos a mais por faixa)":"Modo rápido: YouTube primeiro (pode ter comercial)"); };
 $("#c-vinheta").onclick=e=>{ settings.vinheta=!settings.vinheta; e.currentTarget.classList.toggle("on",settings.vinheta); store.set("omarchy:settings",settings); toast("Vinhetas "+(settings.vinheta?"ligadas":"desligadas")); if(!settings.vinheta&&"speechSynthesis" in window) speechSynthesis.cancel(); };
 $("#btn-reshuffle").onclick=()=>{ queue=shuffled(queue); renderQueue(); toast("Fila re-embaralhada"); };
 $("#sleep").addEventListener("change",e=>{
@@ -882,6 +908,7 @@ document.addEventListener("keydown",e=>{
 /* ===== boot ===== */
 if("speechSynthesis" in window){ speechSynthesis.getVoices(); if(speechSynthesis.onvoiceschanged!==undefined) speechSynthesis.onvoiceschanged=()=>speechSynthesis.getVoices(); }
 $("#c-vinheta").classList.toggle("on",!!settings.vinheta);
+$("#c-adfree").classList.toggle("on",!!settings.adfree);
 audioEl.volume=settings.vol/100;
 renderGrid(); renderSidebar(); renderQueue(); renderHistory(); renderStats();
 log("omarchy-radio iniciado. "+allStations().length+" rádios, "+allStations().reduce((a,s)=>a+s.tracks.length,0)+" faixas.","ok");
