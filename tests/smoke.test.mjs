@@ -43,3 +43,13 @@ test("busca no youtube inteiro com acoes de tocar/fila/radio", () => {
   assert.ok(html.includes("function matchTitle"), "matchTitle (evita musica errada) presente");
   assert.ok(html.includes("function isGenericTitle"), "isGenericTitle presente");
 });
+
+test("ponte local com o terminal presente no site e no cli", () => {
+  assert.ok(html.includes("function startBridge"), "startBridge no site");
+  assert.ok(html.includes("function runBridgeCommand"), "runBridgeCommand no site");
+  assert.ok(html.includes('id="bridge-status"'), "indicador da ponte no waybar");
+  const cli = readFileSync(join(root, "cli", "radio"), "utf8");
+  assert.ok(cli.includes("cmd_bridge"), "cmd_bridge no cli");
+  assert.ok(cli.includes("bridge_active"), "roteamento pela ponte no cli");
+  assert.ok(cli.includes("/health") || cli.includes("bridge_health"), "health check da ponte");
+});

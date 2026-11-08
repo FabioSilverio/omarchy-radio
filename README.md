@@ -80,6 +80,23 @@ radio atualizar # atualiza o comando
 Sem argumento, `radio` abre um menu (fzf). As faixas são as mesmas do site
 (baixa `tracks-data.js` da URL pública a cada início e cacheia localmente).
 
+## Controlar o site pelo terminal (ponte local)
+
+O `radio` do terminal e o site no navegador são players diferentes. A **ponte
+local** junta os dois: os comandos do terminal passam a controlar o que está
+tocando no site.
+
+1. Abra o site no navegador.
+2. Rode qualquer comando `radio` (ex.: `radio status`). Ele sobe a ponte
+   sozinho em `127.0.0.1:8766` e o site conecta em ~2s (aparece **ponte ✓**
+   na barra do topo).
+3. Daí `radio status`, `prox`, `pausa`, `vol <n>`, `stop`, `jonas` e
+   `playlist <link>` controlam o player do navegador.
+
+Sem o site aberto (ou sem a ponte), o `radio` toca sozinho via mpv/yt-dlp, como
+antes. Pra subir a ponte manualmente: `radio bridge`. Porta alternativa:
+`RADIO_BRIDGE_PORT=9000 radio bridge`.
+
 ## Publicar
 
 - **GitHub Pages:** suba esta pasta num repo → Settings → Pages → `main`, `/ (root)`.

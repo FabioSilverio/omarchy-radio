@@ -43,6 +43,41 @@ station_slogan() {
   esac
 }
 
+RADIO_BRIDGE_PORT="${RADIO_BRIDGE_PORT:-8766}"
+BRIDGE="http://127.0.0.1:$RADIO_BRIDGE_PORT"
+bridge_health() { curl -fsSL -m 2 "$BRIDGE/health" >/dev/null 2>&1; }
+bridge_state() { curl -fsSL -m 2 "$BRIDGE/state" 2>/dev/null; }
+bridge_browser_connected() {
+  bridge_health || return 1
+  local c
+  c=$(bridge_state | python3 -c 'import sys,json
+try:
+    print(1 if json.load(sys.stdin).get("connected") else 0)
+except Exception:
+    print(0)' 2>/dev/null)
+  [ "$c" = "1" ]
+}
+bridge_cmd() { curl -fsSL -m 3 -X POST -H 'Content-Type: application/json' -d "$1" "$BRIDGE/command" >/dev/null 2>&1; }
+ensure_bridge() {
+  BRIDGE_JUST_STARTED=0
+  bridge_health && return 0
+  local self; self=$(readlink -f "$0" 2>/dev/null || echo "$0")
+  setsid -f "$self" _bridge >>"$STATE/bridge.log" 2>&1
+  local i
+  for i in 1 2 3 4 5 6 7 8 9 10; do bridge_health && { BRIDGE_JUST_STARTED=1; return 0; }; sleep 0.3; done
+  return 1
+}
+wait_browser() {
+  local i
+  for i in 1 2 3 4 5; do bridge_browser_connected && return 0; sleep 0.5; done
+  return 1
+}
+bridge_active() { # ponte de pé + navegador conectado (espera um pouco se acabou de subir)
+  ensure_bridge || return 1
+  if [ "${BRIDGE_JUST_STARTED:-0}" = 1 ]; then wait_browser; return $?; fi
+  bridge_browser_connected
+}
+
 fetch_data() {
   if curl -fsSL -m 20 "$DATA_URL" -o "$DATA_CACHE.tmp" 2>/dev/null && [ -s "$DATA_CACHE.tmp" ]; then
     mv "$DATA_CACHE.tmp" "$DATA_CACHE"
@@ -164,6 +199,11 @@ cmd_playlist() {
   local url="${1:-}" pid
   pid=$(printf '%s' "$url" | grep -oE 'list=[A-Za-z0-9_-]+' | cut -d= -f2)
   [ -n "$pid" ] || { echo "uso: radio playlist <link-da-playlist-do-youtube>"; exit 1; }
+  if bridge_active; then
+    bridge_cmd "{\"cmd\":\"play-playlist\",\"id_playlist\":\"$pid\"}"
+    echo "Carregando a playlist no site..."
+    return
+  fi
   command -v mpv >/dev/null && command -v yt-dlp >/dev/null || { echo "Faltam mpv/yt-dlp: sudo pacman -S mpv yt-dlp" >&2; exit 1; }
   echo "Carregando playlist..."
   yt-dlp --flat-playlist -J "https://www.youtube.com/playlist?list=$pid" 2>/dev/null | python3 -c '
@@ -202,6 +242,12 @@ cmd_stop() {
 cmd_start() {
   local key; key=$(station_key "${1:-}")
   [ -n "$key" ] || { echo "Estação desconhecida: ${1:-}"; echo "Use: radio $STATIONS_HELP"; exit 1; }
+  if bridge_active; then
+    bridge_cmd "{\"cmd\":\"station\",\"station\":\"$key\"}"
+    echo "No ar no site: $(station_name "$key")"
+    echo "Controles: radio status | radio prox | radio pausa | radio stop"
+    return
+  fi
   command -v mpv >/dev/null && command -v yt-dlp >/dev/null || { echo "Faltam mpv/yt-dlp: sudo pacman -S mpv yt-dlp" >&2; exit 1; }
   fetch_data
   cmd_stop >/dev/null 2>&1 || true
@@ -213,7 +259,122 @@ cmd_start() {
   echo "Controles: radio status | radio prox | radio pausa | radio stop"
 }
 
+cmd_bridge() {
+  echo "omarchy-radio · ponte local em $BRIDGE"
+  echo "Abra o site no navegador; ele conecta sozinho. Ctrl+C encerra."
+  python3 - <<'PY'
+import json, os, time, threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+HOST = "127.0.0.1"
+PORT = int(os.environ.get("RADIO_BRIDGE_PORT", "8766"))
+TTL_COMMAND = 300
+_lock = threading.Lock()
+_state = {"ts": 0.0, "playing": False, "title": "", "artist": "", "stationId": "",
+          "stationName": "", "source": "none", "pos": 0, "dur": 0, "vol": 80}
+_commands = []
+_next_id = [1]
+
+def _prune(now):
+    _commands[:] = [c for c in _commands if now - c.get("at", now) < TTL_COMMAND]
+
+class Handler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def _headers(self, code, length):
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Access-Control-Request-Private-Network")
+        self.send_header("Access-Control-Allow-Private-Network", "true")
+        self.send_header("Access-Control-Max-Age", "600")
+        self.send_header("Content-Length", str(length))
+        self.end_headers()
+
+    def _send(self, code, obj):
+        body = json.dumps(obj).encode("utf-8")
+        self._headers(code, len(body))
+        self.wfile.write(body)
+
+    def do_OPTIONS(self):
+        self._headers(204, 0)
+
+    def _read(self):
+        try:
+            n = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(n) if n else b""
+            return json.loads(raw or b"{}")
+        except Exception:
+            return {}
+
+    def do_GET(self):
+        path = self.path.split("?")[0]
+        if path == "/health":
+            return self._send(200, {"ok": True, "service": "omarchy-radio-bridge", "port": PORT})
+        if path == "/state":
+            with _lock:
+                s = dict(_state)
+            s["connected"] = (time.time() - float(s.get("ts") or 0)) < 15
+            return self._send(200, s)
+        if path == "/commands":
+            after = 0
+            if "after=" in self.path:
+                try:
+                    after = int(self.path.split("after=")[1].split("&")[0])
+                except Exception:
+                    after = 0
+            with _lock:
+                _prune(time.time())
+                cmds = [dict(c) for c in _commands if c["id"] > after]
+            return self._send(200, {"commands": cmds, "next": (cmds[-1]["id"] if cmds else after)})
+        return self._send(404, {"error": "not found"})
+
+    def do_POST(self):
+        path = self.path.split("?")[0]
+        data = self._read()
+        if path == "/state":
+            with _lock:
+                for k in ("playing", "title", "artist", "stationId", "stationName", "source", "pos", "dur", "vol"):
+                    if k in data:
+                        _state[k] = data[k]
+                _state["ts"] = time.time()
+            return self._send(200, {"ok": True})
+        if path == "/command":
+            cmd = data.get("cmd") or data.get("command")
+            if not cmd:
+                return self._send(400, {"ok": False, "error": "cmd obrigatorio"})
+            with _lock:
+                c = {"id": _next_id[0], "at": time.time(), "cmd": cmd}
+                for k in ("value", "station", "id_playlist"):
+                    if k in data:
+                        c[k] = data[k]
+                _next_id[0] += 1
+                _commands.append(c)
+                _prune(time.time())
+            return self._send(200, {"ok": True, "id": c["id"]})
+        return self._send(404, {"error": "not found"})
+
+    def log_message(self, *a):
+        pass
+
+if __name__ == "__main__":
+    srv = ThreadingHTTPServer((HOST, PORT), Handler)
+    print("ponte no ar em http://%s:%d" % (HOST, PORT), flush=True)
+    srv.serve_forever()
+PY
+}
+
 cmd_status() {
+  if bridge_active; then
+    bridge_state | python3 -c 'import sys,json
+s=json.load(sys.stdin)
+pos=float(s.get("pos") or 0); dur=float(s.get("dur") or 0)
+print("♪ %s  [%s]" % (s.get("title") or "?", s.get("stationName") or "site"))
+if dur>0:
+    print("  %d:%02d / %d:%02d%s · volume %s" % (int(pos)//60,int(pos)%60,int(dur)//60,int(dur)%60, " · pausado" if not s.get("playing") else "", s.get("vol","?")))'
+    return
+  fi
   if is_playing_loop; then
     local pos dur paused
     pos=$(mpv_ipc '{"command":["get_property","time-pos"]}'); dur=$(mpv_ipc '{"command":["get_property","duration"]}')
@@ -244,13 +405,19 @@ omarchy-radio no terminal — as rádios de $SITE_URL
   radio vol <0-100>      volume
   radio stop             desliga a rádio
   radio playlist <link>  toca uma playlist do YouTube em shuffle
+  radio bridge           liga a ponte local (o site conecta sozinho)
   radio site             abre o site no navegador
   radio atualizar        atualiza o comando radio
+
+Com o site aberto no navegador (e a ponte de pé), os comandos
+status/prox/pausa/vol/stop/playlist controlam o player DO SITE.
+Sem o site aberto, toca no terminal com mpv normalmente.
 EOF
 }
 
 case "${1:-}" in
   _loop) loop_player "$2" ;;
+  _bridge) cmd_bridge ;;
   ""|menu)
     if [ -t 0 ] && command -v fzf >/dev/null 2>&1; then
       choice=$(printf 'jonas — Jonas Brothers Radio\ntiktok — Hits no TikTok Hoje\n2010 — Hits 2010\ntops — Mais Ouvidas de Todos os Tempos\n' | fzf --prompt='radio> ' --height=8) || exit 0
@@ -271,12 +438,24 @@ for st, tracks in data.items():
 PY
     ;;
   status|st) cmd_status ;;
-  prox|next|pular) mpv_ipc '{"command":["quit"]}' >/dev/null; echo "Próxima..." ;;
-  pausa|pause) mpv_ipc '{"command":["cycle","pause"]}' >/dev/null; cmd_status ;;
+  prox|next|pular)
+    if bridge_active; then bridge_cmd '{"cmd":"next"}'; echo "Próxima (site)..."
+    else mpv_ipc '{"command":["quit"]}' >/dev/null; echo "Próxima..."; fi ;;
+  pausa|pause)
+    if bridge_active; then bridge_cmd '{"cmd":"toggle"}'; sleep 0.3; cmd_status
+    else mpv_ipc '{"command":["cycle","pause"]}' >/dev/null; cmd_status; fi ;;
   vol|volume)
-    v="${2:-}"; case "$v" in ''|*[!0-9]*) echo "uso: radio vol 0-100";; *) echo "$v" > "$VOL_FILE"; mpv_ipc "{\"command\":[\"set_property\",\"volume\",$v]}" >/dev/null; echo "Volume: $v";; esac ;;
-  stop|parar) cmd_stop ;;
+    v="${2:-}"; case "$v" in ''|*[!0-9]*) echo "uso: radio vol 0-100";; *)
+      if bridge_active; then bridge_cmd "{\"cmd\":\"volume\",\"value\":$v}"
+      else echo "$v" > "$VOL_FILE"; mpv_ipc "{\"command\":[\"set_property\",\"volume\",$v]}" >/dev/null; fi
+      echo "Volume: $v";; esac ;;
+  stop|parar)
+    stopped=0
+    if bridge_active; then bridge_cmd '{"cmd":"stop"}'; stopped=1; fi
+    if is_playing_loop; then cmd_stop >/dev/null; stopped=1; fi
+    if [ "$stopped" = 1 ]; then echo "Rádio desligada."; else echo "Nada tocando."; fi ;;
   playlist) shift; cmd_playlist "${1:-}" ;;
+  bridge|ponte) cmd_bridge ;;
   site|abrir) xdg-open "$SITE_URL" >/dev/null 2>&1; echo "Abrindo $SITE_URL" ;;
   atualizar|update)
     tmp=$(mktemp); curl -fsSL -H "Accept: application/vnd.github.raw" "$RAW_RADIO" -o "$tmp" && grep -q "omarchy-radio" "$tmp" && install -m755 "$tmp" "$0" && rm -f "$tmp" && echo "Comando radio atualizado." || { rm -f "$tmp"; echo "Falha ao atualizar." >&2; exit 1; } ;;
