@@ -394,6 +394,7 @@ input[type=range]{accent-color:var(--mauve);width:90px}
 </div>
 
 <script src="tracks-data.js"></script>
+<script src="custom-stations.js"></script>
 <script src="https://www.youtube.com/iframe_api"></script>
 <script>
 "use strict";
@@ -412,6 +413,20 @@ const BUILTIN = [
  {id:"alltime",name:"Mais Ouvidas de Todos os Tempos",desc:"Os maiores hits da história do YouTube em shuffle. Números absurdos, refrões que todo mundo sabe de cor.",slogan:"Você está ouvindo as Mais Ouvidas de Todos os Tempos, na Omarchy Radio.",color:"#cba6f7",custom:false,vinhetaAudio:"assets/vinhetas/alltime.mp3",tracks:tracksOf("alltime")}
 ];
 const COLORS=["#cba6f7","#89b4fa","#94e2d5","#a6e3a1","#fab387","#f9e2af","#f38ba8","#f5c2e7"];
+/* ===== radios publicadas (radio publicar) — aparecem em qualquer navegador ===== */
+const PUBLISHED=(function(){
+  const raw=(typeof window!=="undefined"&&Array.isArray(window.CUSTOM_STATIONS))?window.CUSTOM_STATIONS:[];
+  return raw.filter(s=>s&&s.name&&Array.isArray(s.tracks)&&s.tracks.length).map(s=>({
+    id:String(s.id||("pub-"+String(s.name).toLowerCase().replace(/[^a-z0-9]+/g,"-"))),
+    name:String(s.name),
+    desc:String(s.desc||""),
+    slogan:String(s.slogan||("Você está ouvindo "+s.name+", na Omarchy Radio.")),
+    color:s.color||COLORS[0],
+    custom:false, published:true,
+    vinhetaAudioUrl:s.vinhetaAudioUrl||"",
+    tracks:s.tracks.filter(t=>t&&t.id).map(t=>({artist:String(t.artist||""),title:String(t.title||""),id:String(t.id)}))
+  }));
+})();
 const $=s=>document.querySelector(s);
 const store={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
 let customStations=store.get("omarchy:custom",[]);
@@ -429,9 +444,24 @@ if(_qs.get("backend")) settings.backend=_qs.get("backend").replace(/\/$/,"");
 function favStation(){ return {id:"favs",name:"Favoritas",desc:"Tudo que você favoritou, em shuffle.",slogan:"Você está ouvindo suas Favoritas, na Omarchy Radio.",color:"#f38ba8",custom:false,tracks:favorites.slice()}; }
 function allStations(){
   const base=BUILTIN.map(s=>({...s,tracks:s.tracks.concat(extraTracks[s.id]||[])}));
-  return base.concat(customStations, favorites.length?[favStation()]:[]);
+  const local=base.concat(customStations);
+  /* publicadas aparecem em qualquer navegador; se voce tem a mesma radio aqui
+     (editada neste navegador), a sua copia local manda — voce e o admin */
+  const used=new Set(local.map(s=>normText(s.name)).filter(Boolean));
+  const published=PUBLISHED.filter(s=>!used.has(normText(s.name)));
+  return local.concat(published, favorites.length?[favStation()]:[]);
 }
 function stationById(id){ if(id==="favs") return favStation(); return allStations().find(s=>s.id===id); }
+/* acha a radio por id OU pelo nome (as radios que voce cria no site tem id aleatorio) */
+function findStation(ref){
+  const direct=stationById(ref); if(direct) return direct;
+  const q=normText(ref); if(!q) return null;
+  const list=allStations().filter(s=>s.id!=="favs");
+  return list.find(s=>normText(s.name)===q)
+      || list.find(s=>normText(s.id)===q)
+      || list.find(s=>{ const n=normText(s.name); return !!n&&(n.includes(q)||q.includes(n)); })
+      || null;
+}
 function extractId(input){
   if(!input) return null; input=String(input).trim();
   const m=input.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
@@ -1513,7 +1543,13 @@ function runBridgeCommand(c){
   else if(cmd==="pause"){ if(playing) togglePlay(); }
   else if(cmd==="stop"){ try{ if(yt&&ytReady) yt.pauseVideo(); }catch(e){} try{ audioEl.pause(); }catch(e){} playing=false; source="none"; updatePlayerUI(); $("#way-status").textContent="rádio parada"; }
   else if(cmd==="volume"){ settings.vol=Math.max(0,Math.min(100,Number(c.value)||0)); $("#vol").value=settings.vol; store.set("omarchy:settings",settings); try{ if(ytReady&&yt) yt.setVolume(settings.vol); }catch(e){} audioEl.volume=settings.vol/100; }
-  else if(cmd==="station"){ const s=stationById(c.station); if(s) playStation(s); else toast("Rádio não encontrada: "+c.station); }
+  else if(cmd==="station"){ const s=findStation(c.station); if(s) playStation(s); else toast("Rádio não encontrada: "+c.station); }
+  else if(cmd==="send-stations"){
+    const payload=(customStations||[]).map(s=>({id:s.id,name:s.name,desc:s.desc||"",slogan:s.slogan||"",color:s.color||"",vinhetaAudioUrl:s.vinhetaAudioUrl||"",tracks:(s.tracks||[]).filter(t=>t&&t.id).map(t=>({artist:t.artist||"",title:t.title||"",id:t.id}))}));
+    bridgeFetch("/stations",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({stations:payload})})
+      .then(()=>{ toast("Rádios enviadas para o terminal ("+payload.length+")"); log("enviei "+payload.length+" rádio(s) para o terminal publicar","ok"); })
+      .catch(()=>toast("Não consegui enviar as rádios para o terminal"));
+  }
   else if(cmd==="play-playlist"){ importAndPlayPlaylist(c.id_playlist); }
   else if(cmd==="shuffle"){ $("#btn-reshuffle").click(); }
   setTimeout(postBridgeState,300);

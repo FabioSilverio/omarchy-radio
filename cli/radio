@@ -21,6 +21,7 @@ station_key() {
     tiktok|tik|hoje) echo tiktok ;;
     2010|hits2010|hits) echo hits2010 ;;
     tops|alltime|maiores|historicas) echo alltime ;;
+    natal|natalino|natalinos|christmas|xmas|noel) echo natal ;;
     *) echo "" ;;
   esac
 }
@@ -31,6 +32,7 @@ station_name() {
     tiktok) echo "Hits no TikTok Hoje" ;;
     hits2010) echo "Hits 2010" ;;
     alltime) echo "Mais Ouvidas de Todos os Tempos" ;;
+    natal) echo "Natal" ;;
   esac
 }
 station_slogan() {
@@ -40,6 +42,7 @@ station_slogan() {
     tiktok) echo "Você está ouvindo Hits no TikTok Hoje, na Omarchy Radio." ;;
     hits2010) echo "Você está ouvindo Hits 2010, na Omarchy Radio." ;;
     alltime) echo "Você está ouvindo as Mais Ouvidas de Todos os Tempos, na Omarchy Radio." ;;
+    natal) echo "Você está ouvindo Natal, na Omarchy Radio." ;;
   esac
 }
 
@@ -239,6 +242,45 @@ cmd_stop() {
   else echo "Nada tocando."; fi
 }
 
+station_has_tracks() { # $1 = chave da radio; 0 se existem faixas nos dados locais
+  [ -f "$DATA_CACHE" ] || return 1
+  python3 - "$DATA_CACHE" "$1" <<'PY'
+import json, sys
+try:
+    raw = open(sys.argv[1], encoding="utf-8").read()
+    data = json.loads(raw[raw.index("{"):raw.rindex(";")])
+except Exception:
+    sys.exit(1)
+sys.exit(0 if data.get(sys.argv[2]) else 1)
+PY
+}
+
+cmd_radio_on() {
+  local key last k
+  local candidates=(alltime tiktok natal)
+  local pool=()
+  if ! bridge_active; then
+    # sem o site aberto, só tocam as rádios que têm faixas aqui no terminal
+    fetch_data 2>/dev/null || true
+    local avail=()
+    for k in "${candidates[@]}"; do station_has_tracks "$k" && avail+=("$k"); done
+    if [ ${#avail[@]} -eq 0 ]; then
+      echo "Não consegui carregar as rádios e o site não está aberto."
+      echo "Abra o site (radio site) e rode de novo."
+      exit 1
+    fi
+    [ ${#avail[@]} -lt ${#candidates[@]} ] && echo "(sem o site aberto, toca só as rádios que existem no terminal)"
+    candidates=("${avail[@]}")
+  fi
+  # não repete a última sorteada
+  last=$(cat "$STATE/random-station" 2>/dev/null || true)
+  for k in "${candidates[@]}"; do [ "$k" = "$last" ] || pool+=("$k"); done
+  [ ${#pool[@]} -gt 0 ] || pool=("${candidates[@]}")
+  key=${pool[$((RANDOM % ${#pool[@]}))]}
+  echo "$key" > "$STATE/random-station"
+  cmd_start "$key"
+}
+
 cmd_start() {
   local key; key=$(station_key "${1:-}")
   [ -n "$key" ] || { echo "Estação desconhecida: ${1:-}"; echo "Use: radio $STATIONS_HELP"; exit 1; }
@@ -246,19 +288,29 @@ cmd_start() {
     bridge_cmd "{\"cmd\":\"station\",\"station\":\"$key\"}"
     echo "No ar no site: $(station_name "$key")"
     echo "Controles: radio status | radio prox | radio pausa | radio stop"
-    local i st
-    for i in 1 2 3 4 5 6; do
+    local i st want wantl found=0 blocked=0
+    want=$(station_name "$key")
+    wantl=$(printf '%s' "$want" | tr '[:upper:]' '[:lower:]')
+    for i in 1 2 3 4 5 6 7 8; do
       st=$(bridge_state 2>/dev/null)
-      case "$st" in
-        *'"blocked": true'*) echo "⚠ o navegador bloqueou o som: clique uma vez no site (ou em ▶) para liberar."; break ;;
-        *'"playing": true'*) break ;;
+      case "$(printf '%s' "$st" | tr '[:upper:]' '[:lower:]')" in
+        *"$wantl"*) found=1 ;;
       esac
+      case "$st" in *'"blocked": true'*) blocked=1 ;; esac
+      [ "$found" = 1 ] && break
       sleep 0.5
     done
+    [ "$found" = 1 ] || echo "⚠ o site não achou a rádio \"$want\" — confira o nome dela no site."
+    [ "$blocked" = 1 ] && echo "⚠ o navegador bloqueou o som: clique uma vez no site (ou em ▶) para liberar."
     return
   fi
   command -v mpv >/dev/null && command -v yt-dlp >/dev/null || { echo "Faltam mpv/yt-dlp: sudo pacman -S mpv yt-dlp" >&2; exit 1; }
   fetch_data
+  if ! station_has_tracks "$key"; then
+    echo "A rádio \"$(station_name "$key")\" só existe no site (é uma das suas rádios salvas no navegador)."
+    echo "Abra o site (radio site) e rode de novo — aí ela toca pela ponte."
+    exit 1
+  fi
   cmd_stop >/dev/null 2>&1 || true
   make_queue "$key" "${2:-}" > "$QUEUE"
   echo "$key" > "$STATION_FILE"
@@ -298,6 +350,8 @@ _state = {"ts": 0.0, "playing": False, "title": "", "artist": "", "stationId": "
           "stationName": "", "source": "none", "pos": 0, "dur": 0, "vol": 80}
 _commands = []
 _next_id = [1]
+# radios que o navegador enviou para publicar (comando `radio publicar`)
+_stations = {"stations": [], "ts": 0.0}
 
 def _prune(now):
     _commands[:] = [c for c in _commands if now - c.get("at", now) < TTL_COMMAND]
@@ -341,6 +395,11 @@ class Handler(BaseHTTPRequestHandler):
                 s = dict(_state)
             s["connected"] = (time.time() - float(s.get("ts") or 0)) < 15
             return self._send(200, s)
+        if path == "/stations":
+            with _lock:
+                s = dict(_stations)
+            s["connected"] = (time.time() - float(s.get("ts") or 0)) < 15
+            return self._send(200, s)
         if path == "/commands":
             after = 0
             if "after=" in self.path:
@@ -364,6 +423,14 @@ class Handler(BaseHTTPRequestHandler):
                         _state[k] = data[k]
                 _state["ts"] = time.time()
             return self._send(200, {"ok": True})
+        if path == "/stations":
+            stations = data.get("stations")
+            if not isinstance(stations, list):
+                return self._send(400, {"ok": False, "error": "stations deve ser uma lista"})
+            with _lock:
+                _stations["stations"] = stations
+                _stations["ts"] = time.time()
+            return self._send(200, {"ok": True, "count": len(stations)})
         if path == "/command":
             cmd = data.get("cmd") or data.get("command")
             if not cmd:
@@ -414,11 +481,106 @@ if s.get("blocked"):
   else echo "Nada tocando. Comece com: radio jonas"; fi
 }
 
+cmd_publish() {
+  # Publica as radios criadas neste navegador (admin) para todos os dispositivos:
+  # pede as radios ao site via ponte, gera custom-stations.js e sobe pro GitHub.
+  if ! bridge_active; then
+    echo "Abra o site no navegador principal (onde voce criou as radios) e tente de novo:" >&2
+    echo "  $SITE_URL" >&2
+    return 1
+  fi
+  bridge_cmd '{"cmd":"send-stations"}' || { echo "Nao consegui falar com o site." >&2; return 1; }
+  local out="$STATE/custom-stations.js"
+  python3 - "$BRIDGE/stations" "$out" "$*" <<'PY'
+import json, re, sys, time, urllib.request
+url, out, filtro = sys.argv[1], sys.argv[2], (sys.argv[3] or "").lower().split()
+stations, deadline = [], time.time() + 8
+while time.time() < deadline:
+    try:
+        with urllib.request.urlopen(url, timeout=2) as r:
+            data = json.load(r)
+        if data.get("stations"):
+            stations = data["stations"]; break
+    except Exception:
+        pass
+    time.sleep(0.4)
+if not stations:
+    print("O navegador nao enviou nenhuma radio. Recarregue o site (versao nova) e tente de novo.", file=sys.stderr); sys.exit(1)
+clean = []
+for st in stations:
+    if not isinstance(st, dict): continue
+    name = str(st.get("name") or "").strip()
+    if not name: continue
+    if filtro and not any(f in name.lower() for f in filtro): continue
+    tracks, seen = [], set()
+    for t in st.get("tracks") or []:
+        if isinstance(t, dict):
+            a, ti, vid = str(t.get("artist") or "").strip(), str(t.get("title") or "").strip(), str(t.get("id") or "")
+        elif isinstance(t, (list, tuple)) and len(t) >= 3:
+            a, ti, vid = str(t[0] or "").strip(), str(t[1] or "").strip(), str(t[2] or "")
+        else:
+            continue
+        if not re.fullmatch(r"[A-Za-z0-9_-]{11}", vid) or vid in seen: continue
+        seen.add(vid); tracks.append({"artist": a, "title": ti, "id": vid})
+        if len(tracks) >= 300: break
+    if not tracks: continue
+    clean.append({"name": name, "desc": str(st.get("desc") or ""), "slogan": str(st.get("slogan") or ""),
+                  "color": str(st.get("color") or "#cba6f7"), "vinhetaAudioUrl": str(st.get("vinhetaAudioUrl") or ""),
+                  "tracks": tracks})
+if not clean:
+    print("Nenhuma radio valida para publicar (filtro: %s)." % (" ".join(filtro) or "-"), file=sys.stderr); sys.exit(1)
+body = json.dumps(clean, ensure_ascii=False, separators=(",", ":"))
+with open(out, "w", encoding="utf-8") as f:
+    f.write("// Gerado por `radio publicar` — radios do admin disponiveis em qualquer navegador.\n")
+    f.write("window.CUSTOM_STATIONS = " + body + ";\n")
+print("Radios recebidas: " + ", ".join("%s (%d faixas)" % (s["name"], len(s["tracks"])) for s in clean))
+PY
+  [ -s "$out" ] || return 1
+  # Sobe pro GitHub via API (sem precisar de clone local)
+  python3 - "$out" <<'PY'
+import base64, json, subprocess, sys, urllib.request, urllib.error
+repo = "FabioSilverio/omarchy-radio"
+path = "custom-stations.js"
+try:
+    token = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, timeout=10).stdout.strip()
+except Exception:
+    token = ""
+if not token:
+    print("gh nao logado: rode `gh auth login` uma vez e depois `radio publicar` de novo.", file=sys.stderr); sys.exit(2)
+content = open(sys.argv[1], "rb").read()
+api = "https://api.github.com/repos/%s/contents/%s" % (repo, path)
+def req(method, payload=None):
+    r = urllib.request.Request(api, method=method,
+        data=json.dumps(payload).encode() if payload is not None else None,
+        headers={"Authorization": "Bearer " + token, "Accept": "application/vnd.github+json",
+                 "Content-Type": "application/json", "User-Agent": "omarchy-radio-cli"})
+    with urllib.request.urlopen(r, timeout=30) as resp:
+        return json.load(resp)
+sha = None
+try:
+    sha = req("GET").get("sha")
+except urllib.error.HTTPError as e:
+    if e.code != 404: raise
+payload = {"message": "publica radios personalizadas (radio publicar)",
+           "content": base64.b64encode(content).decode()}
+if sha: payload["sha"] = sha
+req("PUT", payload)
+print("Publicado no GitHub. Em ~1 min aparece em qualquer navegador: https://fabiosilverio.github.io/omarchy-radio/")
+PY
+  local rc=$?
+  if [ "$rc" = 2 ]; then
+    echo "Arquivo pronto em $out — faca login no GitHub e rode de novo." >&2
+    return 1
+  fi
+  [ "$rc" = 0 ] || { echo "Falha ao publicar no GitHub (arquivo salvo em $out)." >&2; return 1; }
+}
+
 usage() {
   cat <<EOF
 omarchy-radio no terminal — as rádios de $SITE_URL
 
   radio                  escolhe a rádio num menu (ou lista as opções)
+  radio on               toca uma rádio aleatória: tops, tiktok ou natal
   radio jonas            toca Jonas Brothers Radio
   radio tiktok           toca Hits no TikTok Hoje
   radio 2010             toca Hits 2010
@@ -432,6 +594,7 @@ omarchy-radio no terminal — as rádios de $SITE_URL
   radio vol <0-100>      volume
   radio stop             desliga a rádio
   radio playlist <link>  toca uma playlist do YouTube em shuffle
+  radio publicar [nome]  publica suas radios (ex.: Natal, Olivia) em todos os dispositivos
   radio bridge           liga a ponte local (o site conecta sozinho)
   radio site             abre o site no navegador
   radio atualizar        atualiza o comando radio
@@ -450,6 +613,7 @@ case "${1:-}" in
       choice=$(printf 'jonas — Jonas Brothers Radio\ntiktok — Hits no TikTok Hoje\n2010 — Hits 2010\ntops — Mais Ouvidas de Todos os Tempos\n' | fzf --prompt='radio> ' --height=8) || exit 0
       cmd_start "${choice%% *}"
     else usage; fi ;;
+  on|aleatoria|aleatorio|random|qualquer) cmd_radio_on ;;
   jonas|tiktok|2010|hits2010|tops|alltime) cmd_start "$1" ;;
   tocar|toca) shift; cmd_start "${1:?uso: radio toca <estacao-ou-busca>}" ;;
   play|retoma|continua|despausa)
@@ -484,6 +648,7 @@ PY
     if is_playing_loop; then cmd_stop >/dev/null; stopped=1; fi
     if [ "$stopped" = 1 ]; then echo "Rádio desligada."; else echo "Nada tocando."; fi ;;
   playlist) shift; cmd_playlist "${1:-}" ;;
+  publicar|publish) shift; cmd_publish "$@" ;;
   bridge|ponte) cmd_bridge ;;
   site|abrir) xdg-open "$SITE_URL" >/dev/null 2>&1; echo "Abrindo $SITE_URL" ;;
   atualizar|update)

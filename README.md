@@ -64,6 +64,7 @@ faixa é resolvida em segundo plano enquanto a atual toca):
 curl -fsSL -H "Accept: application/vnd.github.raw" https://api.github.com/repos/FabioSilverio/omarchy-radio/contents/cli/install.sh | bash
 
 radio jonas     # Jonas Brothers Radio
+radio on        # rádio aleatória: tops, tiktok ou natal
 radio tiktok    # Hits no TikTok Hoje
 radio 2010      # Hits 2010
 radio tops      # Mais Ouvidas de Todos os Tempos
@@ -73,6 +74,7 @@ radio prox      # próxima (já preparada, começa na hora)
 radio pausa     # pausa/continua
 radio vol 70    # volume
 radio stop      # desliga
+radio publicar  # publica suas rádios criadas (Natal, Olívia…) em qualquer dispositivo
 radio site      # abre o site no navegador
 radio atualizar # atualiza o comando
 ```

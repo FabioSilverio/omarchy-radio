@@ -66,3 +66,29 @@ test("autoplay bloqueado nao derruba a radio e tem botao de liberar som", () => 
   assert.ok(cli.includes("play|retoma|continua|despausa"), "comando radio play existe");
   assert.ok(cli.includes('\\"blocked\\"') || cli.includes('"blocked"'), "estado informa bloqueio de autoplay");
 });
+
+test("radios publicadas aparecem em qualquer navegador (admin local tem precedencia)", () => {
+  assert.ok(existsSync(join(root, "custom-stations.js")), "custom-stations.js existe");
+  const cs = readFileSync(join(root, "custom-stations.js"), "utf8");
+  assert.ok(cs.includes("window.CUSTOM_STATIONS"), "CUSTOM_STATIONS definido");
+  assert.ok(html.includes('src="custom-stations.js"'), "site carrega custom-stations.js");
+  assert.ok(html.includes("const PUBLISHED"), "PUBLISHED presente");
+  assert.ok(html.includes("published:true"), "publicadas marcadas");
+  assert.ok(html.includes("send-stations"), "site envia radios pra ponte publicar");
+  const sw = readFileSync(join(root, "sw.js"), "utf8");
+  assert.ok(sw.includes("custom-stations.js"), "SW cacheia custom-stations.js");
+  const cli = readFileSync(join(root, "cli", "radio"), "utf8");
+  assert.ok(/^cmd_publish\(\)/m.test(cli), "cmd_publish no cli");
+  assert.ok(cli.includes("publicar|publish"), "dispatch radio publicar");
+  assert.ok(cli.includes('"/stations"') || cli.includes("/stations"), "ponte /stations presente");
+});
+
+test("radio on sorteia entre tops, tiktok e natal", () => {
+  const cli = readFileSync(join(root, "cli", "radio"), "utf8");
+  assert.ok(/^cmd_radio_on\(\)/m.test(cli), "cmd_radio_on presente");
+  assert.ok(cli.includes("on|aleatoria|aleatorio|random"), "radio on no dispatch");
+  assert.ok(cli.includes("alltime tiktok natal"), "candidatas tops/tiktok/natal");
+  assert.ok(cli.includes("natal|natalino"), "atalho natal no station_key");
+  assert.ok(cli.includes("station_has_tracks"), "checa se a radio existe no terminal");
+  assert.ok(html.includes("function findStation"), "site acha radio pelo nome (radios custom)");
+});
