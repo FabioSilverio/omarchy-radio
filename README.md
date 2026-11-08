@@ -97,6 +97,11 @@ Sem o site aberto (ou sem a ponte), o `radio` toca sozinho via mpv/yt-dlp, como
 antes. Pra subir a ponte manualmente: `radio bridge`. Porta alternativa:
 `RADIO_BRIDGE_PORT=9000 radio bridge`.
 
+Se o navegador bloquear o som (ele exige uma interação com a página antes de
+tocar áudio), o site mostra um aviso **▶ ativar som**: um clique resolve, e a
+partir daí os comandos do terminal tocam normalmente. Fora isso, o site tenta
+sozinho começar mudo e ligar o áudio — igual ao YouTube.
+
 ## Publicar
 
 - **GitHub Pages:** suba esta pasta num repo → Settings → Pages → `main`, `/ (root)`.

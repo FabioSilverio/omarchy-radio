@@ -311,7 +311,7 @@ input[type=range]{accent-color:var(--mauve);width:90px}
 
 <div id="vinheta"></div>
 <div id="toast"></div>
-<div id="autoplay-bar"><span>O navegador bloqueou o som — libere com um clique (ou um comando no terminal).</span><button id="autoplay-btn">▶ ativar som</button></div>
+<div id="autoplay-bar"><span>O navegador bloqueou o som até você interagir com a página.</span><button id="autoplay-btn">▶ ativar som</button></div>
 <div id="yt-holder"><div id="yt-player"></div></div>
 <audio id="fallback-audio" preload="auto"></audio>
 <audio id="prefetch-audio" preload="metadata"></audio>
@@ -509,6 +509,7 @@ function attemptYouTube(seq,videoId,failCb){
     return;
   }
   ytFailCb=()=>{ if(seq===playSeq) failCb(); };
+  if(!hasActivation()){ try{ yt.mute(); startedMuted=true; }catch(e){} }
   try{ yt.loadVideoById(videoId); yt.setVolume(settings.vol); }catch(e){ ytFailCb=null; failCb(); return; }
   probePlayback(seq);
   clearTimeout(watchdog);
@@ -601,6 +602,19 @@ function stopAllSources(){
 function markPlaying(){
   clearTimeout(loadWatchdog);
   playing=true; endedGuard=false; ytFailCb=null;
+  if(startedMuted){
+    startedMuted=false;
+    try{
+      if(source==="ytdlp"||source==="alt") audioEl.muted=false;
+      else if(yt&&ytReady){ yt.setVolume(settings.vol); yt.unMute(); }
+    }catch(e){}
+    setTimeout(()=>{
+      let stillMuted=false;
+      try{ stillMuted=(source==="ytdlp"||source==="alt")?audioEl.muted:!!yt.isMuted(); }catch(e){}
+      if(stillMuted) showAutoplayBar();
+      else log("som ligado automaticamente","ok");
+    },450);
+  }
   if(current && current._seq===playSeq && !current._counted){
     current._counted=true; stats.plays++; store.set("omarchy:stats",stats); renderStats();
     log("▶ "+current.title+" — "+current.artist+" (via "+source+")","ok");
@@ -611,7 +625,10 @@ function markPlaying(){
   updatePlayerUI(); renderQueue();
 }
 /* ===== autoplay: comando vindo do terminal nao conta como clique ===== */
-let autoplayBlocked=false, autoplayProbe=null, autoplayArmed=false, probeEpoch=0;
+let autoplayBlocked=false, autoplayProbe=null, autoplayArmed=false, probeEpoch=0, startedMuted=false;
+function hasActivation(){
+  try{ return !(navigator.userActivation && navigator.userActivation.hasBeenActive===false); }catch(e){ return true; }
+}
 function showAutoplayBar(){
   autoplayBlocked=true;
   const b=$("#autoplay-bar"); if(b) b.classList.add("show");
@@ -632,14 +649,53 @@ function hideAutoplayBar(){
 }
 function activateAudio(){
   const wasBlocked=autoplayBlocked;
-  hideAutoplayBar();
+  hideAutoplayBar(); startedMuted=false;
   try{ if(ytReady&&yt){ yt.setVolume(settings.vol); yt.unMute(); if(!playing&&source!=="ytdlp"&&source!=="alt") yt.playVideo(); } }catch(e){}
   try{ if(source==="ytdlp"||source==="alt"){ audioEl.muted=false; if(!playing) audioEl.play().catch(()=>{}); } }catch(e){}
   if(wasBlocked){ toast("Som liberado."); log("som liberado pelo clique do usuário","ok"); }
 }
 /* tenta tocar sem som (autoplay mudo é permitido) e religa o som em seguida */
-function probePlayback(seq,tries){
-  tries=tries||0;
+function startMuted(seq,ep){
+  const alive=()=>ep===probeEpoch&&(!seq||seq===playSeq);
+  const isAudio=source==="ytdlp"||source==="alt";
+  if(isAudio&&audioEl.src){
+    try{ audioEl.muted=true; const p=audioEl.play(); if(p&&p.catch) p.catch(()=>{}); }catch(e){ showAutoplayBar(); return; }
+    let n=0;
+    const tick=()=>{
+      if(!alive()) return;
+      if(!audioEl.paused){
+        try{ audioEl.muted=false; }catch(e){}
+        log("toquei sem som e liguei o áudio sem precisar de clique","ok");
+        return;
+      }
+      if(++n<12) setTimeout(tick,350); else showAutoplayBar();
+    };
+    setTimeout(tick,350);
+    return;
+  }
+  if(ytReady&&yt){
+    try{ yt.mute(); yt.playVideo(); }catch(e){ showAutoplayBar(); return; }
+    let n=0;
+    const tick=()=>{
+      if(!alive()) return;
+      if(playing||(yt.getPlayerState&&yt.getPlayerState()===1)){
+        try{ yt.unMute(); }catch(e){}
+        log("toquei sem som e liguei o áudio sem precisar de clique","ok");
+        setTimeout(()=>{
+          if(!alive()) return;
+          let m=false; try{ m=yt.isMuted(); }catch(e){}
+          if(m||!playing) showAutoplayBar();
+        },400);
+        return;
+      }
+      if(++n<14) setTimeout(tick,350); else showAutoplayBar();
+    };
+    setTimeout(tick,350);
+    return;
+  }
+  showAutoplayBar();
+}
+function probePlayback(seq){
   const ep=probeEpoch;
   clearTimeout(autoplayProbe);
   autoplayProbe=setTimeout(()=>{
@@ -648,38 +704,10 @@ function probePlayback(seq,tries){
       if(seq&&seq!==playSeq) return;
       if(playing||autoplayBlocked) return;
       const st=(ytReady&&yt&&yt.getPlayerState)?yt.getPlayerState():null;
-      if(st===1||st===YT.PlayerState.PLAYING) return;
-      if(tries<4&&(st===3||st===YT.PlayerState.BUFFERING)){ probePlayback(seq,tries+1); return; }
-      const isAudio=source==="ytdlp"||source==="alt";
-      if(isAudio){
-        if(!audioEl.paused) return;
-        if(tries<4&&audioEl.readyState<3&&audioEl.src){ probePlayback(seq,tries+1); return; }
-        if(audioEl.src){
-          try{ audioEl.muted=true; const p=audioEl.play(); if(p&&p.catch) p.catch(()=>{}); }catch(e){}
-          setTimeout(()=>{
-            if(ep!==probeEpoch) return;
-            if(seq&&seq!==playSeq) return;
-            if(!audioEl.paused){ try{ audioEl.muted=false; }catch(e){} log("comecei sem som e liguei o áudio sem clique","ok"); }
-            else showAutoplayBar();
-          },700);
-          return;
-        }
-      }
-      if(ytReady&&yt){
-        try{ yt.mute(); yt.playVideo(); }catch(e){ showAutoplayBar(); return; }
-        setTimeout(()=>{
-          if(ep!==probeEpoch) return;
-          if(seq&&seq!==playSeq) return;
-          if(playing){
-            try{ yt.unMute(); }catch(e){}
-            setTimeout(()=>{ let m=false; try{ m=yt.isMuted(); }catch(e){} if(m||!playing) showAutoplayBar(); },450);
-          } else showAutoplayBar();
-        },800);
-        return;
-      }
-      showAutoplayBar();
+      if(st===1) return;
+      startMuted(seq,ep);
     }catch(e){ showAutoplayBar(); }
-  },tries?900:1000);
+  },1100);
 }
 /* ===== reprodução com cadeia de fallback (nunca trava) ===== */
 function playTrack(track,station){
@@ -715,11 +743,12 @@ function playAudioUrl(url,seq,label,onFail){
   audioWatchdog=setTimeout(()=>{ if(seq===playSeq && audioEl.currentTime<1 && audioEl.readyState<3){ if(autoplayBlocked) return; log(label+" demorou demais — próxima fonte","warn"); fail(); } },15000);
   try{
     audioEl.src=url; audioEl.volume=settings.vol/100;
+    if(!hasActivation()){ audioEl.muted=true; startedMuted=true; }
     const p=audioEl.play();
     if(p&&p.catch) p.catch(err=>{
       if(err&&(err.name==="NotAllowedError"||err.name==="SecurityError")){
-        /* não é falha da fonte: o navegador só não deixa tocar com som sem um clique */
-        clearTimeout(audioWatchdog); playing=false; updatePlayerUI(); showAutoplayBar(); return;
+        /* não é falha da fonte: o navegador só não deixa começar com som sem um clique */
+        clearTimeout(audioWatchdog); playing=false; updatePlayerUI(); startMuted(seq,probeEpoch); return;
       }
       log(label+" recusou tocar — próxima fonte","warn"); fail();
     });
@@ -1062,7 +1091,7 @@ function prevTrack(){
 }
 function togglePlay(){
   if(!current){ const s=allStations()[0]; if(s) playStation(s); return; }
-  if(source==="ytdlp"||source==="alt"){ if(playing){ audioEl.pause(); probeEpoch++; } else audioEl.play().catch(err=>{ if(err&&err.name==="NotAllowedError") showAutoplayBar(); }); return; }
+  if(source==="ytdlp"||source==="alt"){ if(playing){ audioEl.pause(); probeEpoch++; } else audioEl.play().catch(err=>{ if(err&&err.name==="NotAllowedError") startMuted(playSeq,probeEpoch); }); return; }
   if(!ytReady||!yt) return;
   try{ const st=yt.getPlayerState(); if(st===YT.PlayerState.PLAYING){ probeEpoch++; yt.pauseVideo(); } else yt.playVideo(); }catch(e){}
 }

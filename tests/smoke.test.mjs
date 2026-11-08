@@ -56,6 +56,7 @@ test("ponte local com o terminal presente no site e no cli", () => {
 
 test("autoplay bloqueado nao derruba a radio e tem botao de liberar som", () => {
   assert.ok(html.includes("function probePlayback"), "probePlayback presente");
+  assert.ok(html.includes("function startMuted"), "inicio mudo presente (padrao youtube)");
   assert.ok(html.includes("function showAutoplayBar"), "aviso de autoplay presente");
   assert.ok(html.includes("function activateAudio"), "liberar som por clique presente");
   assert.ok(html.includes('id="autoplay-bar"'), "barra de ativar som no html");
