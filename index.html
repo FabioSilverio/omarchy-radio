@@ -223,7 +223,7 @@ input[type=range]{accent-color:var(--mauve);width:90px}
         <button id="c-fav" title="favoritar faixa atual (f)">♥</button>
         <button id="c-ban" title="não tocar esta faixa nesta rádio">⊘</button>
         <button id="c-retry" title="tentar esta faixa de novo">↻</button>
-        <button id="c-adfree" class="on" title="sem comerciais: tenta yt-dlp/fonte alternativa antes do YouTube">SEM ADS</button>
+        <button id="c-adfree" class="on" title="sem comerciais rápido: 1ª faixa via YouTube, as próximas são preparadas sem comercial durante a atual">SEM ADS</button>
         <button id="c-vinheta" class="on" title="vinhetas ligadas/desligadas">VINHETA</button>
       </div>
       <div class="progress"><span id="t-cur">0:00</span><div id="bar"><div id="fill"></div></div><span id="t-dur">0:00</span></div>
@@ -242,6 +242,7 @@ input[type=range]{accent-color:var(--mauve);width:90px}
 <div id="toast"></div>
 <div id="yt-holder"><div id="yt-player"></div></div>
 <audio id="fallback-audio" preload="auto"></audio>
+<audio id="prefetch-audio" preload="metadata"></audio>
 
 <div class="modal" id="modal-station">
   <div class="sheet">
@@ -276,7 +277,7 @@ input[type=range]{accent-color:var(--mauve);width:90px}
     <label>Voz da vinheta</label>
     <select id="s-voice"><option value="on">ligada (TTS do navegador, pt-BR)</option><option value="off">desligada (só o aviso na tela)</option></select>
     <label>Comerciais do YouTube</label>
-    <select id="s-adfree"><option value="on">sem comerciais primeiro (yt-dlp/alternativa → YouTube por último)</option><option value="off">YouTube primeiro (rápido, pode ter comercial)</option></select>
+    <select id="s-adfree"><option value="on">sem comerciais rápido (1ª via YouTube; próximas preparadas sem ads durante a atual)</option><option value="off">YouTube sempre primeiro (rápido, pode ter comercial em qualquer faixa)</option></select>
     <label>Suas rádios (backup)</label>
     <div class="row" style="justify-content:flex-start;margin-top:4px">
       <button class="btn" id="s-export">↓ exportar rádios (.json)</button>
@@ -429,7 +430,7 @@ async function attemptAltAudio(seq,track,onFail){
   } else onFail();
 }
 function tryAdFree(seq,track){
-  /* sem comerciais primeiro: yt-dlp -> alternativa -> youtube -> outra versao */
+  /* sem comerciais: yt-dlp -> alternativa -> youtube -> outra versao */
   const goYouTube=()=>attemptYouTube(seq,track.id,()=>tryReplacement(seq,track));
   const goAlt=()=>{ log("modo sem comerciais: tentando fonte alternativa..."); attemptAltAudio(seq,track,()=>{ log("sem comerciais indisponível nesta faixa — usando youtube","warn"); goYouTube(); }); };
   if(settings.backend){
@@ -437,6 +438,62 @@ function tryAdFree(seq,track){
     source="ytdlp"; updatePlayerUI();
     playAudioUrl(settings.backend.replace(/\/$/,"")+"/stream/"+encodeURIComponent(track.id),seq,"yt-dlp",goAlt);
   } else goAlt();
+}
+/* ===== SEM ADS rapido: prepara a proxima enquanto a atual toca ===== */
+let fastStartPending=false;
+const prefetchCache=new Map();
+const waitMs=ms=>new Promise(r=>setTimeout(()=>r(null),ms));
+async function resolveAdFreeUrl(track){
+  if(settings.backend){
+    const url=settings.backend.replace(/\/$/,"")+"/stream/"+encodeURIComponent(track.id);
+    /* esquenta a extracao no backend (ele cacheia por 20 min) sem baixar a musica */
+    try{
+      const c=new AbortController(); const t=setTimeout(()=>c.abort(),15000);
+      const r=await fetch(url,{headers:{Range:"bytes=0-1"},signal:c.signal});
+      clearTimeout(t);
+      try{ if(r.body) await r.body.cancel(); }catch(e){}
+    }catch(e){ /* se falhar, a tentativa real acontece na hora da faixa */ }
+    return {kind:"ytdlp",url};
+  }
+  const url=await getAltAudio(track.id).catch(()=>null);
+  return url?{kind:"alt",url}:null;
+}
+function prefetchNext(){
+  if(!settings.adfree||!currentStation) return;
+  const nxt=queue[0]; if(!nxt||prefetchCache.has(nxt.id)) return;
+  const entry={url:null,kind:null,promise:null};
+  entry.promise=resolveAdFreeUrl(nxt).then(res=>{
+    if(res){
+      entry.url=res.url; entry.kind=res.kind;
+      try{ const pa=$("#prefetch-audio"); if(pa&&pa.src!==res.url){ pa.src=res.url; pa.load(); } }catch(e){}
+      log("próxima já preparada sem comerciais: "+nxt.title,"ok");
+    }
+    return res;
+  }).catch(()=>null);
+  prefetchCache.set(nxt.id,entry);
+  while(prefetchCache.size>4){ const k=prefetchCache.keys().next().value; if(k===nxt.id) break; prefetchCache.delete(k); }
+}
+function playPrefetched(seq,track,entry){
+  source=entry.kind; updatePlayerUI();
+  log("começando já preparada, sem comercial: "+track.title,"ok");
+  playAudioUrl(entry.url,seq,entry.kind==="ytdlp"?"yt-dlp":"fonte alternativa",
+    ()=>attemptYouTube(seq,track.id,()=>tryReplacement(seq,track)));
+}
+function playAdFreeSmart(seq,track){
+  const entry=prefetchCache.get(track.id);
+  if(entry&&entry.url){ playPrefetched(seq,track,entry); return; }
+  if(entry&&entry.promise){
+    source="loading"; updatePlayerUI();
+    log("terminando de preparar esta faixa sem comerciais...");
+    Promise.race([entry.promise,waitMs(2500)]).then(()=>{
+      if(seq!==playSeq) return;
+      const e2=prefetchCache.get(track.id);
+      if(e2&&e2.url) playPrefetched(seq,track,e2);
+      else attemptYouTube(seq,track.id,()=>tryReplacement(seq,track));
+    });
+    return;
+  }
+  tryAdFree(seq,track);
 }
 function stopAllSources(){
   clearTimeout(watchdog); clearTimeout(audioWatchdog);
@@ -452,6 +509,7 @@ function markPlaying(){
     playHistory=[{artist:current.artist,title:current.title,id:current.id,stationId:current.stationId}].concat(playHistory.filter(h=>h.id!==current.id)).slice(0,30);
     store.set("omarchy:history",playHistory); renderHistory();
   }
+  if(playing) prefetchNext();
   updatePlayerUI(); renderQueue();
 }
 /* ===== reprodução com cadeia de fallback (nunca trava) ===== */
@@ -461,7 +519,13 @@ function playTrack(track,station){
   current={artist:track.artist,title:track.title,id:track.id,stationId:station.id,stationName:station.name,_seq:seq,_counted:false,_replaced:false,_fallbackStarted:false,_failedId:track.id};
   source="loading"; playing=false; updatePlayerUI(); renderQueue(); renderGrid(); renderSidebar();
   $("#way-status").textContent="carregando: "+track.title;
-  if(settings.adfree) tryAdFree(seq,{artist:track.artist,title:track.title,id:track.id});
+  const trackObj={artist:track.artist,title:track.title,id:track.id};
+  if(settings.adfree&&fastStartPending){
+    fastStartPending=false;
+    log("1ª faixa via youtube (rápido) — as próximas já vão sendo preparadas sem comerciais");
+    attemptYouTube(seq,track.id,()=>tryAdFree(seq,trackObj));
+  }
+  else if(settings.adfree) playAdFreeSmart(seq,trackObj);
   else attemptYouTube(seq,track.id,()=>tryFallbacks(seq,"youtube"));
 }
 let audioFailCb=null;
@@ -572,7 +636,7 @@ async function searchAltTrack(track){
 }
 /* ===== fila, vinheta, navegação ===== */
 function playStation(station,specificTrack){
-  currentStation=station;
+  currentStation=station; fastStartPending=true;
   const usable=usableTracks(station);
   if(!station.tracks.length){ toast("Essa rádio não tem faixas ainda — adicione com + faixa"); return; }
   if(!usable.length){ toast("Todas as faixas falharam nas últimas 24h. Limpe em ⚙ Ferramentas → limpar faixas bloqueadas."); return; }
@@ -882,9 +946,9 @@ $("#c-ban").onclick=()=>{
   toast("⊘ não toca mais nesta rádio: "+current.title); log("faixa bloqueada pelo usuário: "+current.title,"warn");
   nextTrack(true);
 };
-$("#c-adfree").onclick=e=>{ settings.adfree=!settings.adfree; e.currentTarget.classList.toggle("on",settings.adfree); store.set("omarchy:settings",settings); toast(settings.adfree?"Modo sem comerciais ligado (pode demorar uns segundos a mais por faixa)":"Modo rápido: YouTube primeiro (pode ter comercial)"); };
+$("#c-adfree").onclick=e=>{ settings.adfree=!settings.adfree; e.currentTarget.classList.toggle("on",settings.adfree); store.set("omarchy:settings",settings); toast(settings.adfree?"SEM ADS rápido: próximas faixas preparadas sem comercial durante a atual":"YouTube primeiro em tudo (rápido, pode ter comercial)"); if(settings.adfree) prefetchNext(); };
 $("#c-vinheta").onclick=e=>{ settings.vinheta=!settings.vinheta; e.currentTarget.classList.toggle("on",settings.vinheta); store.set("omarchy:settings",settings); toast("Vinhetas "+(settings.vinheta?"ligadas":"desligadas")); if(!settings.vinheta&&"speechSynthesis" in window) speechSynthesis.cancel(); };
-$("#btn-reshuffle").onclick=()=>{ queue=shuffled(queue); renderQueue(); toast("Fila re-embaralhada"); };
+$("#btn-reshuffle").onclick=()=>{ queue=shuffled(queue); renderQueue(); prefetchNext(); toast("Fila re-embaralhada"); };
 $("#sleep").addEventListener("change",e=>{
   const min=Number(e.target.value);
   if(!min){ sleepDeadline=0; $("#sleep-left").textContent=""; return; }

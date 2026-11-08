@@ -17,9 +17,10 @@ no navegador e podem ser exportadas/importadas em ⚙ Ferramentas.
 
 ## Como o áudio nunca para (cadeia de fallback)
 
-**Modo SEM ADS (padrão, botão no player):** o player oficial do YouTube insere
-comerciais antes de algumas músicas — então a prioridade é das fontes sem
-comercial, e o YouTube vira só o último recurso:
+**Modo SEM ADS rápido (padrão, botão no player):** o player oficial do YouTube
+insere comerciais antes de algumas músicas. Então a 1ª faixa da rádio entra
+na hora pelo YouTube, e **enquanto ela toca a próxima já é preparada** na
+fonte sem comercial — da segunda faixa em diante é instantâneo e sem ads:
 
 1. **Backend yt-dlp** (se configurado em ⚙ Ferramentas)
 2. **Fonte alternativa pública** (arquivo de áudio do mesmo vídeo, sem comercial)
@@ -34,6 +35,31 @@ Ferramentas: ♥ favoritas (vira uma rádio), histórico, ⏲ sleep timer,
 ⊘ bloquear faixa na rádio, ↻ tentar de novo, compartilhar rádio por link
 (quem abre importa a rádio), botões de mídia do teclado/fone, estatísticas
 de plays e tempo ouvido. Atalhos: `espaço` `n` `p` `f` `m` `/` `←` `→`.
+
+## No terminal do Omarchy
+
+Instala o comando `radio` (toca sem navegador, com mpv + yt-dlp; a próxima
+faixa é resolvida em segundo plano enquanto a atual toca):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/FabioSilverio/omarchy-radio/main/cli/install.sh | bash
+
+radio jonas     # Jonas Brothers Radio
+radio tiktok    # Hits no TikTok Hoje
+radio 2010      # Hits 2010
+radio tops      # Mais Ouvidas de Todos os Tempos
+radio sucker    # busca e toca a música (e segue na rádio dela)
+radio status    # o que está tocando
+radio prox      # próxima (já preparada, começa na hora)
+radio pausa     # pausa/continua
+radio vol 70    # volume
+radio stop      # desliga
+radio site      # abre o site no navegador
+radio atualizar # atualiza o comando
+```
+
+Sem argumento, `radio` abre um menu (fzf). As faixas são as mesmas do site
+(baixa `tracks-data.js` da URL pública a cada início e cacheia localmente).
 
 ## Publicar
 
