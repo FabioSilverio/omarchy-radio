@@ -109,6 +109,9 @@ footer{grid-column:1/4;background:var(--crust);border-top:1px solid var(--surfac
 .cbtns button:hover{border-color:var(--mauve)}
 .cbtns .main{width:44px;height:44px;background:var(--text);color:var(--crust);border-color:var(--text);font-weight:800;font-size:17px}
 .cbtns button.on{color:var(--green);border-color:var(--green)}
+.heart-ico{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:2;stroke-linejoin:round;vertical-align:-3px}
+#c-fav.fav-on{color:var(--red);border-color:var(--red)}
+#c-fav.fav-on .heart-ico{fill:var(--red);stroke:var(--red)}
 .cbtns button.fav-on{color:var(--red);border-color:var(--red)}
 .progress{display:flex;align-items:center;gap:10px;width:100%;font-size:11px;color:var(--overlay)}
 #bar{flex:1;height:5px;background:var(--surface);cursor:pointer;position:relative}
@@ -199,7 +202,7 @@ input[type=range]{accent-color:var(--mauve);width:90px}
     <div class="logo"><span class="tilde">~/</span>omarchy<br>radio<small>spotify, mas só rádio.<br>áudio do youtube, sem vídeo.</small></div>
     <div class="navlabel"># navegar</div>
     <button class="navitem active" id="nav-home"><span>⌂</span> Início</button>
-    <button class="navitem" id="nav-favs"><span style="color:var(--red)">♥</span> Favoritas <span class="count" id="fav-count">0</span></button>
+    <button class="navitem" id="nav-favs"><span style="color:var(--red)"><svg viewBox="0 0 24 24" class="heart-ico" aria-hidden="true"><path d="M12 20.7C6.4 17 3 13.6 3 9.9 3 7.2 5 5 7.7 5c1.7 0 3.3.9 4.3 2.4C13 5.9 14.6 5 16.3 5 19 5 21 7.2 21 9.9c0 3.7-3.4 7.1-9 10.8z"/></svg></span> Favoritas <span class="count" id="fav-count">0</span></button>
     <div class="navlabel"># suas rádios</div>
     <div id="station-list"></div>
     <button id="btn-new">+ nova rádio</button>
@@ -220,7 +223,7 @@ input[type=range]{accent-color:var(--mauve);width:90px}
       <input id="search" type="search" placeholder="buscar rádio ou música...  ( / )">
       <div id="mobilebar">
         <select id="m-station" aria-label="escolher rádio"></select>
-        <button id="m-favs" title="favoritas">♥</button>
+        <button id="m-favs" title="favoritas"><svg viewBox="0 0 24 24" class="heart-ico" aria-hidden="true"><path d="M12 20.7C6.4 17 3 13.6 3 9.9 3 7.2 5 5 7.7 5c1.7 0 3.3.9 4.3 2.4C13 5.9 14.6 5 16.3 5 19 5 21 7.2 21 9.9c0 3.7-3.4 7.1-9 10.8z"/></svg></button>
         <button id="m-new">+ rádio</button>
       </div>
       <div class="grid" id="grid"></div>
@@ -268,7 +271,7 @@ input[type=range]{accent-color:var(--mauve);width:90px}
         <button id="c-prev" title="anterior (p)">⏮</button>
         <button id="c-play" class="main" title="play/pause (espaço)">▶</button>
         <button id="c-next" title="próxima (n)">⏭</button>
-        <button id="c-fav" title="favoritar faixa atual (f)">♥</button>
+        <button id="c-fav" title="favoritar faixa atual (f)"><svg viewBox="0 0 24 24" class="heart-ico" aria-hidden="true"><path d="M12 20.7C6.4 17 3 13.6 3 9.9 3 7.2 5 5 7.7 5c1.7 0 3.3.9 4.3 2.4C13 5.9 14.6 5 16.3 5 19 5 21 7.2 21 9.9c0 3.7-3.4 7.1-9 10.8z"/></svg></button>
         <button id="c-ban" title="não tocar esta faixa nesta rádio">⊘</button>
         <button id="c-retry" title="tentar esta faixa de novo">↻</button>
         <button id="c-adfree" class="on" title="sem comerciais rápido: 1ª faixa via YouTube, as próximas são preparadas sem comercial durante a atual">SEM ADS</button>
@@ -291,6 +294,8 @@ input[type=range]{accent-color:var(--mauve);width:90px}
 <div id="yt-holder"><div id="yt-player"></div></div>
 <audio id="fallback-audio" preload="auto"></audio>
 <audio id="prefetch-audio" preload="metadata"></audio>
+<audio id="vinheta-audio" preload="auto"></audio>
+<audio id="vinheta-bed" preload="auto" loop src="assets/vinhetas/bed.mp3"></audio>
 
 <div class="modal" id="modal-station">
   <div class="sheet">
@@ -305,6 +310,7 @@ input[type=range]{accent-color:var(--mauve);width:90px}
     <label>Nome da rádio</label><input id="f-name" placeholder="ex: Jonas Brothers">
     <label>Descrição</label><input id="f-desc" placeholder="ex: Discografia em shuffle infinito">
     <label>Texto da vinheta (falado entre as músicas)</label><input id="f-slogan" placeholder="ex: Você está ouvindo Jonas Brothers Radio">
+    <label>URL de áudio da vinheta (mp3, opcional — senão usa a voz do navegador com jingle)</label><input id="f-vaudio" placeholder="https://.../minha-vinheta.mp3">
     <label>Cor</label><div class="swatch" id="f-colors"></div>
     <label>Faixas — uma por linha</label><textarea id="f-tracks" placeholder="Jonas Brothers - Sucker | https://www.youtube.com/watch?v=CnAmeh0-E-U"></textarea>
     <div class="row"><button class="btn" data-close>cancelar</button><button class="btn primary" id="f-save">salvar rádio</button></div>
@@ -370,10 +376,10 @@ const FALLBACK_TRACKS = {
 const TD = (typeof window!=="undefined" && window.TRACKS_DATA) ? window.TRACKS_DATA : {};
 function tracksOf(key){ const t = TD[key] && TD[key].length ? TD[key] : FALLBACK_TRACKS[key]; return t.map(x=>({artist:x[0],title:x[1],id:x[2]})); }
 const BUILTIN = [
- {id:"jonas",name:"Jonas Brothers Radio",desc:"A discografia dos Jonas em shuffle infinito — álbuns, Nick Jonas, DNCE e os clássicos de 2007 ao comeback.",slogan:"Você está ouvindo Jonas Brothers Radio, na Omarchy Radio. Só os brothers, sem parar.",color:"#f38ba8",custom:false,tracks:tracksOf("jonas")},
- {id:"tiktok",name:"Hits no TikTok Hoje",desc:"O que está bombando no feed agora, em rádio — sem precisar abrir o TikTok. Pop viral e refrão chiclete o dia todo.",slogan:"Você está ouvindo Hits no TikTok Hoje, na Omarchy Radio. Direto do seu feed, sem o feed.",color:"#94e2d5",custom:false,tracks:tracksOf("tiktok")},
- {id:"hits2010",name:"Hits 2010",desc:"A geração 2010 no talo: Gaga, Kesha, Eminem, Katy e Bruno Mars como tocava na FM na época do iPod.",slogan:"Você está ouvindo Hits 2010, na Omarchy Radio. De volta pra época do iPod.",color:"#fab387",custom:false,tracks:tracksOf("hits2010")},
- {id:"alltime",name:"Mais Ouvidas de Todos os Tempos",desc:"Os maiores hits da história do YouTube em shuffle. Números absurdos, refrões que todo mundo sabe de cor.",slogan:"Você está ouvindo as Mais Ouvidas de Todos os Tempos, na Omarchy Radio.",color:"#cba6f7",custom:false,tracks:tracksOf("alltime")}
+ {id:"jonas",name:"Jonas Brothers Radio",desc:"A discografia dos Jonas em shuffle infinito — álbuns, Nick Jonas, DNCE e os clássicos de 2007 ao comeback.",slogan:"Você está ouvindo Jonas Brothers Radio, na Omarchy Radio. Só os brothers, sem parar.",color:"#f38ba8",custom:false,vinhetaAudio:"assets/vinhetas/jonas.mp3",tracks:tracksOf("jonas")},
+ {id:"tiktok",name:"Hits no TikTok Hoje",desc:"O que está bombando no feed agora, em rádio — sem precisar abrir o TikTok. Pop viral e refrão chiclete o dia todo.",slogan:"Você está ouvindo Hits no TikTok Hoje, na Omarchy Radio. Direto do seu feed, sem o feed.",color:"#94e2d5",custom:false,vinhetaAudio:"assets/vinhetas/tiktok.mp3",tracks:tracksOf("tiktok")},
+ {id:"hits2010",name:"Hits 2010",desc:"A geração 2010 no talo: Gaga, Kesha, Eminem, Katy e Bruno Mars como tocava na FM na época do iPod.",slogan:"Você está ouvindo Hits 2010, na Omarchy Radio. De volta pra época do iPod.",color:"#fab387",custom:false,vinhetaAudio:"assets/vinhetas/hits2010.mp3",tracks:tracksOf("hits2010")},
+ {id:"alltime",name:"Mais Ouvidas de Todos os Tempos",desc:"Os maiores hits da história do YouTube em shuffle. Números absurdos, refrões que todo mundo sabe de cor.",slogan:"Você está ouvindo as Mais Ouvidas de Todos os Tempos, na Omarchy Radio.",color:"#cba6f7",custom:false,vinhetaAudio:"assets/vinhetas/alltime.mp3",tracks:tracksOf("alltime")}
 ];
 const COLORS=["#cba6f7","#89b4fa","#94e2d5","#a6e3a1","#fab387","#f9e2af","#f38ba8","#f5c2e7"];
 const $=s=>document.querySelector(s);
@@ -390,7 +396,7 @@ const _qs=new URLSearchParams(location.search);
 if(_qs.get("backend")) settings.backend=_qs.get("backend").replace(/\/$/,"");
 /* limpa badIds vencidos (24h) */
 { const now=Date.now(); Object.keys(badIds).forEach(k=>{ if(now-badIds[k]>864e5) delete badIds[k]; }); }
-function favStation(){ return {id:"favs",name:"Favoritas",desc:"Tudo que você favoritou com o ♥, em shuffle.",slogan:"Você está ouvindo suas Favoritas, na Omarchy Radio.",color:"#f38ba8",custom:false,tracks:favorites.slice()}; }
+function favStation(){ return {id:"favs",name:"Favoritas",desc:"Tudo que você favoritou, em shuffle.",slogan:"Você está ouvindo suas Favoritas, na Omarchy Radio.",color:"#f38ba8",custom:false,tracks:favorites.slice()}; }
 function allStations(){
   const base=BUILTIN.map(s=>({...s,tracks:s.tracks.concat(extraTracks[s.id]||[])}));
   return base.concat(customStations, favorites.length?[favStation()]:[]);
@@ -558,7 +564,7 @@ function stopAllSources(){
   clearTimeout(watchdog); clearTimeout(audioWatchdog);
   try{ if(yt&&ytReady) yt.stopVideo(); }catch(e){}
   try{ audioEl.pause(); audioEl.removeAttribute("src"); audioEl.load(); }catch(e){}
-  if("speechSynthesis" in window){ try{speechSynthesis.cancel()}catch(e){} }
+  stopVinhetaAudio();
 }
 function markPlaying(){
   playing=true; endedGuard=false; ytFailCb=null;
@@ -755,6 +761,51 @@ function sting(){
     o.connect(g).connect(ctx.destination); o.start(); o.stop(ctx.currentTime+.36);
   }catch(e){}
 }
+function stopVinhetaAudio(){
+  ["#vinheta-audio","#vinheta-bed"].forEach(sel=>{ const a=$(sel); if(a){ try{ a.pause(); a.currentTime=0; }catch(e){} } });
+  if("speechSynthesis" in window){ try{speechSynthesis.cancel()}catch(e){} }
+}
+function speakVinheta(station,slogan,onDone){
+  /* Prioridade: mp3 gerado por IA (locutor + jingle). Senao: cama de jingle + TTS. */
+  let done=false;
+  const finish=()=>{ if(done) return; done=true; stopVinhetaAudio(); if(onDone) onDone(); };
+  const va=$("#vinheta-audio"), bed=$("#vinheta-bed");
+  const url=station&&(station.vinhetaAudio||station.vinhetaAudioUrl);
+  if(url&&va){
+    try{
+      va.src=url; va.currentTime=0; va.volume=0;
+      va.onended=finish;
+      va.onerror=()=>{ va.onerror=null; ttsFallback(); };
+      const p=va.play();
+      /* fade-in da vinheta */
+      const t0=Date.now();
+      const ramp=setInterval(()=>{ const k=Math.min(1,(Date.now()-t0)/350); try{ va.volume=k; }catch(e){} if(k>=1||done) clearInterval(ramp); },50);
+      if(p&&p.catch) p.catch(()=>ttsFallback());
+      setTimeout(finish,25000);
+      return;
+    }catch(e){ /* cai pro TTS */ }
+  }
+  ttsFallback();
+  function ttsFallback(){
+    if(done) return;
+    if(settings.voice==="on"&&"speechSynthesis" in window){
+      try{
+        if(bed){ bed.volume=0.16; bed.currentTime=0; bed.play().catch(()=>{}); }
+        speechSynthesis.cancel();
+        const u=new SpeechSynthesisUtterance(slogan); u.lang="pt-BR"; u.rate=1.02;
+        const v=speechSynthesis.getVoices().find(v=>v.lang&&v.lang.toLowerCase().startsWith("pt"));
+        if(v) u.voice=v;
+        u.onend=finish; u.onerror=finish;
+        speechSynthesis.speak(u);
+        setTimeout(finish,Math.min(12000,3000+slogan.length*85));
+      }catch(e){ setTimeout(finish,1400); }
+    } else {
+      /* sem voz: so o jingle instrumental */
+      if(bed){ bed.volume=0.45; bed.currentTime=0; bed.play().catch(()=>{}); }
+      setTimeout(finish,2400);
+    }
+  }
+}
 function maybeVinheta(done){
   sinceVinheta++;
   if(!settings.vinheta||!currentStation||sinceVinheta<Number(settings.every||3)){ done(); return; }
@@ -762,20 +813,10 @@ function maybeVinheta(done){
   const slogan=currentStation.slogan||("Você está ouvindo "+currentStation.name+", na Omarchy Radio.");
   const box=$("#vinheta");
   box.innerHTML=`<b>♪ VINHETA ♪</b><br>${esc(slogan)}`; box.classList.add("show");
-  log("vinheta: "+slogan,"warn"); sting();
+  log("vinheta (locutor): "+slogan,"warn"); sting();
   let finished=false;
   const finish=()=>{ if(finished) return; finished=true; box.classList.remove("show"); done(); };
-  if(settings.voice==="on"&&"speechSynthesis" in window){
-    try{
-      speechSynthesis.cancel();
-      const u=new SpeechSynthesisUtterance(slogan); u.lang="pt-BR"; u.rate=1.02;
-      const v=speechSynthesis.getVoices().find(v=>v.lang&&v.lang.toLowerCase().startsWith("pt"));
-      if(v) u.voice=v;
-      u.onend=finish; u.onerror=finish;
-      speechSynthesis.speak(u);
-      setTimeout(finish,Math.min(9000,2600+slogan.length*85));
-    }catch(e){ setTimeout(finish,1200); }
-  } else setTimeout(finish,1600);
+  speakVinheta(currentStation,slogan,finish);
 }
 function advanceNext(){
   const usable=usableTracks(currentStation);
@@ -812,7 +853,7 @@ function cancelVinhetaTransition(){
   clearInterval(vinhetaTransition.fadeTimer); clearTimeout(vinhetaTransition.speechTimer); clearTimeout(vinhetaTransition.maxTimer);
   vinhetaTransition=null;
   $("#vinheta").classList.remove("show");
-  if("speechSynthesis" in window){ try{speechSynthesis.cancel()}catch(e){} }
+  stopVinhetaAudio();
   setOutputVolume(settings.vol);
 }
 function startVinhetaTransition(){
@@ -831,21 +872,10 @@ function startVinhetaTransition(){
     setOutputVolume(startVol*(1-k));
     if(k>=1) clearInterval(tr.fadeTimer);
   },100);
-  /* voz entra por cima do rabo ja baixo (fade-in da vinheta) */
+  /* locutor entra por cima do rabo ja baixo (fade-in da vinheta) */
   tr.speechTimer=setTimeout(()=>{
     if(vinhetaTransition!==tr) return;
-    if(settings.voice==="on"&&"speechSynthesis" in window){
-      try{
-        speechSynthesis.cancel();
-        const u=new SpeechSynthesisUtterance(slogan); u.lang="pt-BR"; u.rate=1.02;
-        const v=speechSynthesis.getVoices().find(v=>v.lang&&v.lang.toLowerCase().startsWith("pt"));
-        if(v) u.voice=v;
-        const done=()=>{ if(vinhetaTransition!==tr) return; tr.speechDone=true; tryFinishVinheta(); };
-        u.onend=done; u.onerror=done;
-        speechSynthesis.speak(u);
-        setTimeout(done,Math.min(9000,2600+slogan.length*85));
-      }catch(e){ tr.speechDone=true; tryFinishVinheta(); }
-    } else { tr.speechDone=true; tryFinishVinheta(); }
+    speakVinheta(currentStation,slogan,()=>{ if(vinhetaTransition!==tr) return; tr.speechDone=true; tryFinishVinheta(); });
   },1400);
   tr.maxTimer=setTimeout(()=>{ if(vinhetaTransition!==tr) return; tr.songEnded=true; tr.speechDone=true; tryFinishVinheta(); },14000);
 }
@@ -1016,6 +1046,7 @@ function openStationForm(station){
   $("#ms-title").textContent=station?(station.custom?"Editar rádio":"Editar (salva como cópia sua)"):"Nova rádio";
   $("#f-name").value=station?station.name:""; $("#f-desc").value=station?(station.desc||""):"";
   $("#f-slogan").value=station?(station.slogan||""):"";
+  $("#f-vaudio").value=station?(station.vinhetaAudioUrl||""):"";
   $("#f-tracks").value=station?station.tracks.map(t=>`${t.artist} - ${t.title} | https://www.youtube.com/watch?v=${t.id}`).join("\n"):"";
   $("#f-playlist").value=""; $("#f-playlist-status").textContent="A playlist precisa ser pública ou não-listada. Todas as faixas dela viram a rádio.";
   openModal("#modal-station");
@@ -1057,7 +1088,7 @@ $("#f-save").onclick=async()=>{
   tracks=tracks.concat(preParsed);
   const seen=new Set(); tracks=tracks.filter(t=>t&&t.id&&!seen.has(t.id)&&seen.add(t.id)).slice(0,300);
   if(!tracks.length){ toast("Nenhuma faixa válida — cole links do YouTube ou uma playlist pública"); return; }
-  const data={name,desc:$("#f-desc").value.trim(),slogan:$("#f-slogan").value.trim()||("Você está ouvindo "+name+", na Omarchy Radio."),color:selectedColor,tracks,custom:true};
+  const data={name,desc:$("#f-desc").value.trim(),slogan:$("#f-slogan").value.trim()||("Você está ouvindo "+name+", na Omarchy Radio."),vinhetaAudioUrl:$("#f-vaudio").value.trim(),color:selectedColor,tracks,custom:true};
   if(editingId&&customStations.some(s=>s.id===editingId)){ Object.assign(customStations.find(s=>s.id===editingId),data); log("rádio editada: "+name,"ok"); }
   else { data.id="custom-"+Date.now(); customStations.push(data); editingId=data.id; log("rádio criada: "+name+" ("+tracks.length+" faixas)","ok"); }
   store.set("omarchy:custom",customStations); closeModals(); renderGrid($("#search").value); renderSidebar(); openDetail(editingId); toast("Rádio salva neste navegador");
@@ -1067,7 +1098,7 @@ $("#m-new").onclick=()=>openStationForm(null);
 $("#m-favs").onclick=()=>$("#nav-favs").click();
 $("#m-station").addEventListener("change",e=>{ if(e.target.value) openDetail(e.target.value); });
 $("#nav-home").onclick=closeDetail; $("#btn-back").onclick=closeDetail;
-$("#nav-favs").onclick=()=>{ if(!favorites.length){ toast("Nenhuma favorita ainda — use o ♥ no player"); return; } openDetail("favs"); };
+$("#nav-favs").onclick=()=>{ if(!favorites.length){ toast("Nenhuma favorita ainda — use o coração no player"); return; } openDetail("favs"); };
 $("#d-edit").onclick=()=>{ const s=stationById(detailId); if(s) openStationForm(s); };
 $("#d-delete").onclick=()=>{
   const s=stationById(detailId); if(!s||!s.custom) return;
@@ -1143,7 +1174,7 @@ $("#c-fav").onclick=()=>{
   if(!current) return;
   const i=favorites.findIndex(f=>f.id===current.id);
   if(i>=0){ favorites.splice(i,1); toast("Removida das favoritas"); }
-  else { favorites.unshift({artist:current.artist,title:current.title,id:current.id}); toast("♥ favoritada: "+current.title); }
+  else { favorites.unshift({artist:current.artist,title:current.title,id:current.id}); toast("favoritada: "+current.title); }
   store.set("omarchy:favs",favorites); updatePlayerUI(); renderStats();
 };
 $("#c-ban").onclick=()=>{

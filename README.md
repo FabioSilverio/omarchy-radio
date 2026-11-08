@@ -33,8 +33,15 @@ com comercial ocasional) e o resto vira fallback de falha.
 
 As **duas próximas** faixas ficam sempre preparadas — pular de faixa (uma ou
 duas vezes seguidas) começa em ~1s. A **vinheta** (a cada 3 músicas, ajustável)
-entra nos últimos 6s da faixa atual com fade-out da música, a voz por cima do
-rabo já baixo, e a próxima já carregada durante a vinheta.
+entra nos últimos 6s da faixa atual com fade-out da música, e a próxima já
+carregada durante a vinheta.
+
+As vinhetas das 4 rádios são **áudio gerado por IA**: voz neural de locutor
+(pt-BR, Edge TTS) mixada sobre jingle sintetizado com ducking — arquivos em
+`assets/vinhetas/`, gerados por `tools/gerar-vinhetas.py` (rode de novo pra
+trocar os textos). Rádios suas sem vinheta própria usam a cama de jingle com
+a voz do navegador por cima, ou um mp3 seu (campo no formulário da rádio).
+No terminal, `radio` baixa e toca essas mesmas vinhetas entre as músicas.
 
 ## Importar playlist do YouTube
 

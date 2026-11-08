@@ -86,10 +86,17 @@ PY
 
 is_playing_loop() { [ -f "$LOOP_PID_FILE" ] && kill -0 "$(cat "$LOOP_PID_FILE")" 2>/dev/null; }
 
-vinheta_falada() {
-  echo "♪ VINHETA ♪ $1"
-  if command -v spd-say >/dev/null 2>&1; then spd-say -l pt -r 5 "$1" 2>/dev/null || true
-  elif command -v espeak-ng >/dev/null 2>&1; then espeak-ng -v pt-br "$1" 2>/dev/null || true
+vinheta_falada() { # $1=estacao $2=slogan
+  local key="$1" file="$STATE/vinhetas/$1.mp3"
+  echo "♪ VINHETA ♪ $2"
+  case "$key" in jonas|tiktok|hits2010|alltime)
+    mkdir -p "$STATE/vinhetas"
+    if [ ! -s "$file" ]; then curl -fsSL -m 30 "https://fabiosilverio.github.io/omarchy-radio/assets/vinhetas/$key.mp3" -o "$file" 2>/dev/null || rm -f "$file"; fi
+    if [ -s "$file" ]; then mpv --no-video --really-quiet --volume="$(cat "$VOL_FILE")" ${RADIO_MPV_OPTS:-} "$file" >/dev/null 2>&1 && return; fi
+    ;;
+  esac
+  if command -v spd-say >/dev/null 2>&1; then spd-say -l pt -r 5 "$2" 2>/dev/null || true
+  elif command -v espeak-ng >/dev/null 2>&1; then espeak-ng -v pt-br "$2" 2>/dev/null || true
   fi
 }
 
@@ -147,7 +154,7 @@ loop_player() {
         [ -n "$(cached_url "$nid")" ] || ( resolve_into_cache "$nid" ) &
       fi
       count=$((count + 1))
-      if [ $count -gt 1 ] && [ $(( (count - 1) % 3 )) -eq 0 ]; then vinheta_falada "$(station_slogan "$station")"; fi
+      if [ $count -gt 1 ] && [ $(( (count - 1) % 3 )) -eq 0 ]; then vinheta_falada "$station" "$(station_slogan "$station")"; fi
       play_one "$id" "$artist" "$title" || echo "  faixa indisponível, pulando: $artist — $title" >&2
     done
     if [ "$station" = playlist ]; then shuf "$STATE/playlist.tsv" > "$QUEUE"; else make_queue "$station" > "$QUEUE"; fi
