@@ -7,10 +7,11 @@ BIN_DIR="$HOME/.local/bin"
 mkdir -p "$BIN_DIR"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-install.sh}")" 2>/dev/null && pwd || true)"
 
-if [ -n "${SCRIPT_DIR:-}" ] && [ -f "$SCRIPT_DIR/radio" ]; then
+if [ -n "${SCRIPT_DIR:-}" ] && [ -f "$SCRIPT_DIR/radio" ] && [ -f "$SCRIPT_DIR/../index.html" ]; then
   install -m755 "$SCRIPT_DIR/radio" "$BIN_DIR/radio"
 else
-  curl -fsSL "https://raw.githubusercontent.com/FabioSilverio/omarchy-radio/main/cli/radio" -o "$BIN_DIR/radio"
+  curl -fsSL -H "Accept: application/vnd.github.raw" "https://api.github.com/repos/FabioSilverio/omarchy-radio/contents/cli/radio" -o "$BIN_DIR/radio"
+  grep -q "omarchy-radio" "$BIN_DIR/radio" || { echo "Download do comando falhou." >&2; exit 1; }
   chmod 755 "$BIN_DIR/radio"
 fi
 echo "✓ comando instalado: $BIN_DIR/radio"

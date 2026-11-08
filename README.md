@@ -54,7 +54,7 @@ Instala o comando `radio` (toca sem navegador, com mpv + yt-dlp; a próxima
 faixa é resolvida em segundo plano enquanto a atual toca):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/FabioSilverio/omarchy-radio/main/cli/install.sh | bash
+curl -fsSL -H "Accept: application/vnd.github.raw" https://api.github.com/repos/FabioSilverio/omarchy-radio/contents/cli/install.sh | bash
 
 radio jonas     # Jonas Brothers Radio
 radio tiktok    # Hits no TikTok Hoje

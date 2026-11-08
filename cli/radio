@@ -5,7 +5,7 @@ set -u
 
 SITE_URL="https://fabiosilverio.github.io/omarchy-radio/"
 DATA_URL="${RADIO_DATA_URL:-https://fabiosilverio.github.io/omarchy-radio/tracks-data.js}"
-RAW_RADIO="https://raw.githubusercontent.com/FabioSilverio/omarchy-radio/main/cli/radio"
+RAW_RADIO="https://api.github.com/repos/FabioSilverio/omarchy-radio/contents/cli/radio"
 STATE="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-radio"
 mkdir -p "$STATE"
 QUEUE="$STATE/queue.tsv"; CURRENT="$STATE/current"; STATION_FILE="$STATE/station"
@@ -272,7 +272,7 @@ PY
   playlist) shift; cmd_playlist "${1:-}" ;;
   site|abrir) xdg-open "$SITE_URL" >/dev/null 2>&1; echo "Abrindo $SITE_URL" ;;
   atualizar|update)
-    tmp=$(mktemp); curl -fsSL "$RAW_RADIO" -o "$tmp" && install -m755 "$tmp" "$0" && rm -f "$tmp" && echo "Comando radio atualizado." || { rm -f "$tmp"; echo "Falha ao atualizar." >&2; exit 1; } ;;
+    tmp=$(mktemp); curl -fsSL -H "Accept: application/vnd.github.raw" "$RAW_RADIO" -o "$tmp" && grep -q "omarchy-radio" "$tmp" && install -m755 "$tmp" "$0" && rm -f "$tmp" && echo "Comando radio atualizado." || { rm -f "$tmp"; echo "Falha ao atualizar." >&2; exit 1; } ;;
   -h|--help|help|ajuda) usage ;;
   *)
     # radio toca <busca livre>: procura a musica e toca ela + a radio dela
