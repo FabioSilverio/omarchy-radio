@@ -33,7 +33,8 @@ button{font-family:inherit;cursor:pointer}
 #waybar button{background:none;border:1px solid var(--surface2);color:var(--subtext);padding:3px 10px;font-size:12px}
 #waybar button:hover{color:var(--text);border-color:var(--mauve)}
 #netstatus.off{color:var(--red)}
-#app{display:grid;grid-template-columns:264px 1fr 300px;grid-template-rows:1fr 100px;height:calc(100vh - 38px)}
+#app{display:grid;grid-template-columns:264px 1fr 300px;grid-template-rows:1fr 100px;height:calc(100vh - 38px);height:calc(100dvh - 38px)}
+#mobilebar{display:none}
 aside{background:var(--mantle);border-right:1px solid var(--surface);padding:18px 14px;overflow-y:auto;display:flex;flex-direction:column;gap:6px}
 .logo{font-size:19px;font-weight:800;line-height:1.25;margin-bottom:4px}
 .logo .tilde{color:var(--mauve)} .logo small{display:block;font-size:11px;font-weight:400;color:var(--overlay);margin-top:6px}
@@ -136,7 +137,48 @@ input[type=range]{accent-color:var(--mauve);width:90px}
 #yt-holder{position:fixed;left:0;bottom:0;width:4px;height:4px;overflow:hidden;opacity:.01;pointer-events:none;z-index:-1}
 #yt-holder iframe{width:4px;height:4px}
 @media(max-width:1000px){#app{grid-template-columns:210px 1fr}#queuecol{display:none}footer{grid-column:1/3}.controls{min-width:0}}
-@media(max-width:680px){#app{grid-template-columns:1fr}aside{display:none}.nowp .t,.nowp .a{max-width:120px}}
+@media(hover:none){.card .playbtn{opacity:1;transform:none}}
+@media(max-width:680px){
+  /* barra superior enxuta */
+  #waybar{gap:8px;padding:0 10px;font-size:11px}
+  #waybar .path{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:34vw}
+  #waybar .path span,#way-status,#netstatus,#clock{display:none}
+  #waybar button{padding:3px 8px;font-size:11px;white-space:nowrap}
+  /* layout: sem sidebar/fila, player em camadas */
+  #app{grid-template-columns:1fr;grid-template-rows:1fr auto}
+  aside,#queuecol{display:none}
+  main{padding:18px 14px 28px}
+  main h1{font-size:21px}
+  .sub{font-size:12px;margin-bottom:16px}
+  #search{max-width:none;margin-bottom:14px}
+  #mobilebar{display:flex;gap:8px;margin-bottom:16px}
+  #mobilebar select{flex:1;min-width:0;background:var(--mantle);border:1px solid var(--surface2);color:var(--text);font-family:inherit;padding:10px;font-size:13px}
+  #mobilebar button{background:var(--mantle);border:1px solid var(--surface2);color:var(--text);padding:10px 12px;font-size:13px;white-space:nowrap}
+  #mobilebar #m-new{background:var(--mauve);color:var(--crust);border-color:var(--mauve);font-weight:800}
+  .grid{grid-template-columns:1fr;gap:12px}
+  .card .playbtn{top:auto;bottom:74px}
+  /* detalhe da radio */
+  .dhead{gap:12px}.dhead img{width:100%;height:auto}
+  .dhead h2{font-size:23px}
+  .dactions .btn{padding:8px 11px;font-size:12px}
+  table.tracks{font-size:12px}
+  table.tracks th:nth-child(4),table.tracks td:nth-child(4){display:none}
+  /* player: 3 linhas (faixa / controles / progresso+volume) */
+  footer{grid-column:1;grid-template-columns:1fr;gap:8px;padding:10px 12px calc(10px + env(safe-area-inset-bottom))}
+  .nowp{width:100%}
+  .nowp .t{max-width:52vw}
+  .nowp .a{max-width:52vw}
+  .controls{min-width:0;width:100%}
+  .cbtns{flex-wrap:nowrap;justify-content:center;gap:5px}
+  .cbtns button{min-width:35px;height:38px;font-size:12px;padding:0 4px}
+  .cbtns .main{width:44px;height:44px}
+  .cbtns #c-vinheta,.cbtns #c-adfree{font-size:9px;padding:0 5px;min-width:50px}
+  .rightc{justify-content:space-between;width:100%}
+  input[type=range]{width:110px}
+  #vinheta{left:12px;right:12px;bottom:auto;top:48px;max-width:none}
+  #toast{bottom:auto;top:48px;width:calc(100vw - 24px)}
+  .sheet{padding:18px}
+}
 </style>
 </head>
 <body>
@@ -175,6 +217,11 @@ input[type=range]{accent-color:var(--mauve);width:90px}
       <h1><span class="prompt">$</span> tocar rádio --agora</h1>
       <p class="sub">Escolha uma estação. Ela toca <b>em shuffle infinito</b>, com <b>vinheta falada</b> entre as músicas. Se uma faixa travar ou for bloqueada, o player tenta outra fonte sozinho — <b>a rádio não para</b>.</p>
       <input id="search" type="search" placeholder="buscar rádio ou música...  ( / )">
+      <div id="mobilebar">
+        <select id="m-station" aria-label="escolher rádio"></select>
+        <button id="m-favs" title="favoritas">♥</button>
+        <button id="m-new">+ rádio</button>
+      </div>
       <div class="grid" id="grid"></div>
     </section>
 
@@ -747,6 +794,12 @@ function updatePlayerUI(){
 }
 function renderStats(){ $("#stat-line").textContent=stats.plays+" plays · "+Math.floor(stats.seconds/60)+" min ouvidos"; $("#fav-count").textContent=favorites.length; const s=$("#s-stats"); if(s) s.textContent="Estatísticas neste navegador: "+stats.plays+" plays, "+Math.floor(stats.seconds/60)+" minutos ouvidos, "+favorites.length+" favoritas, "+Object.keys(badIds).length+" faixas marcadas com falha."; }
 function renderSidebar(){
+  const msel=$("#m-station");
+  if(msel){
+    const cur=msel.value;
+    msel.innerHTML=allStations().map(s=>`<option value="${esc(s.id)}">${esc(s.name)} (${s.tracks.length})</option>`).join("");
+    msel.value=detailId||cur||"jonas";
+  }
   const list=$("#station-list"); list.innerHTML="";
   allStations().filter(s=>s.id!=="favs").forEach(s=>{
     const b=document.createElement("button");
@@ -858,6 +911,9 @@ $("#f-save").onclick=()=>{
   store.set("omarchy:custom",customStations); closeModals(); renderGrid($("#search").value); renderSidebar(); openDetail(editingId); toast("Rádio salva neste navegador");
 };
 $("#btn-new").onclick=()=>openStationForm(null);
+$("#m-new").onclick=()=>openStationForm(null);
+$("#m-favs").onclick=()=>$("#nav-favs").click();
+$("#m-station").addEventListener("change",e=>{ if(e.target.value) openDetail(e.target.value); });
 $("#nav-home").onclick=closeDetail; $("#btn-back").onclick=closeDetail;
 $("#nav-favs").onclick=()=>{ if(!favorites.length){ toast("Nenhuma favorita ainda — use o ♥ no player"); return; } openDetail("favs"); };
 $("#d-edit").onclick=()=>{ const s=stationById(detailId); if(s) openStationForm(s); };
