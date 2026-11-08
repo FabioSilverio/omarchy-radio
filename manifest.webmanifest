@@ -1,0 +1,10 @@
+{
+  "name": "omarchy-radio",
+  "short_name": "omarchy-radio",
+  "description": "Rádios infinitas em shuffle, áudio do YouTube, sem vídeo.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#11111b",
+  "theme_color": "#11111b",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>omarchy-radio — ~/radio</title>
+<meta name="description" content="Rádios infinitas em shuffle, áudio direto do YouTube, sem vídeo. Visual Omarchy/Catppuccin.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;0,800;1,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --base:#1e1e2e; --mantle:#181825; --crust:#11111b; --surface:#313244; --surface2:#45475a;
+  --overlay:#6c7086; --text:#cdd6f4; --subtext:#a6adc8; --mauve:#cba6f7; --blue:#89b4fa;
+  --teal:#94e2d5; --green:#a6e3a1; --peach:#fab387; --yellow:#f9e2af; --red:#f38ba8; --pink:#f5c2e7;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{background:var(--crust);color:var(--text);font-family:"JetBrains Mono",monospace;font-size:14px;overflow:hidden}
+button{font-family:inherit;cursor:pointer}
+::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-thumb{background:var(--surface2);border:3px solid var(--mantle)}::-webkit-scrollbar-track{background:transparent}
+#waybar{height:38px;background:var(--crust);display:flex;align-items:center;gap:12px;padding:0 14px;border-bottom:1px solid var(--surface);font-size:12px}
+#waybar .dots{color:var(--overlay);letter-spacing:2px}
+#waybar .dots b:nth-child(1){color:var(--red)}#waybar .dots b:nth-child(2){color:var(--yellow)}#waybar .dots b:nth-child(3){color:var(--green)}
+#waybar .path{color:var(--blue)} #waybar .path span{color:var(--overlay)}
+.onair{color:var(--crust);background:var(--red);font-weight:800;padding:2px 8px;display:none}
+.onair.live{display:inline-block;animation:blink 1.6s steps(2) infinite}
+@keyframes blink{50%{opacity:.55}}
+#waybar .spacer{flex:1}
+#way-status{color:var(--subtext);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:34vw}
+#clock{color:var(--subtext)}
+#waybar button{background:none;border:1px solid var(--surface2);color:var(--subtext);padding:3px 10px;font-size:12px}
+#waybar button:hover{color:var(--text);border-color:var(--mauve)}
+#netstatus.off{color:var(--red)}
+#app{display:grid;grid-template-columns:264px 1fr 300px;grid-template-rows:1fr 100px;height:calc(100vh - 38px)}
+aside{background:var(--mantle);border-right:1px solid var(--surface);padding:18px 14px;overflow-y:auto;display:flex;flex-direction:column;gap:6px}
+.logo{font-size:19px;font-weight:800;line-height:1.25;margin-bottom:4px}
+.logo .tilde{color:var(--mauve)} .logo small{display:block;font-size:11px;font-weight:400;color:var(--overlay);margin-top:6px}
+.navlabel{font-size:11px;color:var(--overlay);margin:16px 0 6px}
+.navitem{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:none;border:1px solid transparent;color:var(--subtext);padding:8px 10px;font-size:13px}
+.navitem:hover{color:var(--text);background:var(--base)}
+.navitem.active{color:var(--text);background:var(--base);border-color:var(--surface)}
+.navitem .sw{width:9px;height:9px;flex:none}
+.navitem .count{margin-left:auto;font-size:11px;color:var(--overlay)}
+.navitem.playing-st .nm::after{content:" ▮▮";color:var(--green);font-size:10px}
+#btn-new{margin-top:10px;background:var(--mauve);color:var(--crust);border:none;font-weight:800;padding:10px;font-size:13px;width:100%}
+#btn-new:hover{background:var(--pink)}
+.sidefoot{margin-top:auto;padding-top:16px;font-size:11px;color:var(--overlay);line-height:1.7}
+.sidefoot code{color:var(--teal)} .sidefoot b{color:var(--subtext);font-weight:500}
+main{background:var(--base);overflow-y:auto;padding:26px 30px 40px}
+main h1{font-size:26px;font-weight:800;letter-spacing:-.5px}
+main h1 .prompt{color:var(--green)}
+.sub{color:var(--subtext);margin:8px 0 22px;font-size:13px;line-height:1.6}
+.sub b{color:var(--peach);font-weight:500}
+#search{width:100%;max-width:420px;background:var(--mantle);border:1px solid var(--surface2);color:var(--text);font-family:inherit;padding:10px 12px;font-size:13px;margin-bottom:24px;outline:none}
+#search:focus{border-color:var(--mauve)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px}
+.card{background:var(--mantle);border:1px solid var(--surface);padding:14px;text-align:left;color:var(--text);position:relative}
+.card:hover{border-color:var(--c,var(--mauve))}
+.card img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block;filter:saturate(.85);background:var(--surface)}
+.card .playbtn{position:absolute;right:22px;top:96px;width:42px;height:42px;border-radius:50%;border:none;background:var(--green);color:var(--crust);font-size:16px;font-weight:800;opacity:0;transform:translateY(4px);transition:.15s}
+.card:hover .playbtn,.card.is-playing .playbtn{opacity:1;transform:none}
+.card.is-playing{border-color:var(--green)}
+.card h3{font-size:14px;margin:12px 0 5px}
+.card p{font-size:11px;color:var(--subtext);line-height:1.55;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.card .meta{font-size:11px;color:var(--overlay);margin-top:9px}
+.card .meta em{color:var(--c,var(--mauve));font-style:normal}
+#detail{display:none} #detail.open{display:block}
+.back{background:none;border:none;color:var(--blue);font-size:13px;padding:0;margin-bottom:18px}
+.dhead{display:flex;gap:20px;align-items:flex-end;margin-bottom:22px;flex-wrap:wrap}
+.dhead img{width:220px;aspect-ratio:16/9;object-fit:cover;background:var(--surface)}
+.dhead .k{font-size:11px;color:var(--overlay)}
+.dhead h2{font-size:30px;font-weight:800;margin:6px 0}
+.dhead p{color:var(--subtext);font-size:13px;max-width:560px;line-height:1.6}
+.dactions{display:flex;gap:10px;margin:14px 0 8px;flex-wrap:wrap}
+.btn{border:1px solid var(--surface2);background:var(--mantle);color:var(--text);padding:9px 16px;font-size:13px}
+.btn.primary{background:var(--green);color:var(--crust);border-color:var(--green);font-weight:800}
+.btn.danger:hover{border-color:var(--red);color:var(--red)}
+.btn:hover{border-color:var(--mauve)}
+table.tracks{width:100%;border-collapse:collapse;font-size:13px}
+table.tracks th{text-align:left;color:var(--overlay);font-weight:400;font-size:11px;padding:8px;border-bottom:1px solid var(--surface)}
+table.tracks td{padding:9px 8px;border-bottom:1px solid var(--mantle);color:var(--subtext)}
+table.tracks tr{cursor:pointer} table.tracks tr:hover td{background:var(--mantle);color:var(--text)}
+table.tracks tr.now td{color:var(--green)} table.tracks tr.bad td{opacity:.45;text-decoration:line-through}
+table.tracks td:first-child{color:var(--overlay);width:34px}
+#queuecol{background:var(--mantle);border-left:1px solid var(--surface);padding:18px 14px;overflow-y:auto}
+#queuecol h4{font-size:12px;color:var(--overlay);font-weight:400;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
+#queuecol h4 button{background:none;border:1px solid var(--surface2);color:var(--subtext);font-size:11px;padding:2px 8px}
+#queuecol h4 button:hover{color:var(--text);border-color:var(--mauve)}
+.qitem{padding:8px 10px;border:1px solid transparent;font-size:12px;color:var(--subtext);line-height:1.5}
+.qitem b{color:var(--text);font-weight:500;display:block;font-size:13px}
+.qitem.now{border-color:var(--surface);background:var(--base)} .qitem.now b{color:var(--green)}
+.hitem{padding:7px 10px;font-size:12px;color:var(--subtext);cursor:pointer;border:1px solid transparent;line-height:1.5}
+.hitem:hover{background:var(--base);color:var(--text)} .hitem b{color:var(--text);font-weight:500}
+#log{font-size:11px;color:var(--overlay);line-height:1.8;white-space:pre-wrap;word-break:break-word}
+#log .ok{color:var(--green)} #log .err{color:var(--red)} #log .warn{color:var(--yellow)}
+footer{grid-column:1/4;background:var(--crust);border-top:1px solid var(--surface);display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:14px;padding:10px 16px}
+.nowp{display:flex;gap:12px;align-items:center;min-width:0}
+.nowp img{width:56px;height:40px;object-fit:cover;background:var(--surface)}
+.nowp .t{font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px}
+.nowp .a{font-size:11px;color:var(--subtext);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px}
+.srcbadge{font-size:10px;border:1px solid var(--surface2);color:var(--teal);padding:2px 6px;white-space:nowrap}
+.srcbadge.ytdlp{color:var(--peach)} .srcbadge.alt{color:var(--yellow)}
+.controls{display:flex;flex-direction:column;align-items:center;gap:7px;min-width:400px}
+.cbtns{display:flex;gap:7px;align-items:center}
+.cbtns button{background:none;border:1px solid var(--surface2);color:var(--text);min-width:36px;height:36px;font-size:13px;padding:0 7px}
+.cbtns button:hover{border-color:var(--mauve)}
+.cbtns .main{width:44px;height:44px;background:var(--text);color:var(--crust);border-color:var(--text);font-weight:800;font-size:17px}
+.cbtns button.on{color:var(--green);border-color:var(--green)}
+.cbtns button.fav-on{color:var(--red);border-color:var(--red)}
+.progress{display:flex;align-items:center;gap:10px;width:100%;font-size:11px;color:var(--overlay)}
+#bar{flex:1;height:5px;background:var(--surface);cursor:pointer;position:relative}
+#fill{height:100%;background:var(--mauve);width:0%}
+.rightc{display:flex;align-items:center;gap:9px;justify-content:flex-end;font-size:12px;color:var(--subtext);flex-wrap:wrap}
+input[type=range]{accent-color:var(--mauve);width:90px}
+.rightc button,.rightc select{background:var(--crust);border:1px solid var(--surface2);color:var(--subtext);padding:6px 8px;font-size:12px;font-family:inherit}
+.rightc button.on{color:var(--yellow);border-color:var(--yellow)}
+#vinheta{position:fixed;right:18px;bottom:118px;background:var(--mantle);border:1px solid var(--yellow);color:var(--yellow);padding:14px 18px;font-size:13px;max-width:380px;display:none;z-index:40;line-height:1.6}
+#vinheta.show{display:block} #vinheta b{color:var(--text)}
+.modal{position:fixed;inset:0;background:rgba(17,17,27,.84);display:none;align-items:center;justify-content:center;z-index:50;padding:18px}
+.modal.open{display:flex}
+.sheet{background:var(--mantle);border:1px solid var(--surface2);width:640px;max-width:100%;max-height:88vh;overflow-y:auto;padding:24px}
+.sheet h3{font-size:17px;margin-bottom:6px}.sheet .hint{font-size:12px;color:var(--subtext);line-height:1.65;margin-bottom:14px}
+.sheet label{display:block;font-size:11px;color:var(--overlay);margin:14px 0 6px}
+.sheet input,.sheet textarea,.sheet select{width:100%;background:var(--base);border:1px solid var(--surface2);color:var(--text);font-family:inherit;padding:10px;font-size:13px;outline:none}
+.sheet textarea{min-height:104px;resize:vertical;line-height:1.6}
+.sheet input:focus,.sheet textarea:focus{border-color:var(--mauve)}
+.swatch{display:flex;gap:8px}.swatch button{width:30px;height:30px;border:2px solid transparent}
+.swatch button.sel{border-color:var(--text)}
+.sheet .row{display:flex;gap:10px;justify-content:flex-end;margin-top:20px;flex-wrap:wrap}
+.sheet kbd{background:var(--surface);padding:1px 6px;font-size:11px}
+.sheet table{width:100%;font-size:12px;color:var(--subtext);border-collapse:collapse}
+.sheet table td{padding:6px 4px;border-bottom:1px solid var(--surface)}
+#toast{position:fixed;left:50%;bottom:118px;transform:translateX(-50%);background:var(--surface);color:var(--text);padding:10px 16px;font-size:12px;display:none;z-index:60;border:1px solid var(--surface2);max-width:90vw;text-align:center}
+#yt-holder{position:fixed;left:0;bottom:0;width:4px;height:4px;overflow:hidden;opacity:.01;pointer-events:none;z-index:-1}
+#yt-holder iframe{width:4px;height:4px}
+@media(max-width:1000px){#app{grid-template-columns:210px 1fr}#queuecol{display:none}footer{grid-column:1/3}.controls{min-width:0}}
+@media(max-width:680px){#app{grid-template-columns:1fr}aside{display:none}.nowp .t,.nowp .a{max-width:120px}}
+</style>
+</head>
+<body>
+<div id="waybar">
+  <span class="dots"><b>●</b> <b>●</b> <b>●</b></span>
+  <span class="path">~/omarchy-radio <span>— zsh</span></span>
+  <span class="onair" id="onair">● ON AIR</span>
+  <span id="way-status">rádio parada</span>
+  <span class="spacer"></span>
+  <span id="netstatus">online</span>
+  <button id="btn-help" title="atalhos e ajuda">?</button>
+  <button id="btn-settings">⚙ ferramentas</button>
+  <span id="clock">--:--</span>
+</div>
+
+<div id="app">
+  <aside>
+    <div class="logo"><span class="tilde">~/</span>omarchy<br>radio<small>spotify, mas só rádio.<br>áudio do youtube, sem vídeo.</small></div>
+    <div class="navlabel"># navegar</div>
+    <button class="navitem active" id="nav-home"><span>⌂</span> Início</button>
+    <button class="navitem" id="nav-favs"><span style="color:var(--red)">♥</span> Favoritas <span class="count" id="fav-count">0</span></button>
+    <div class="navlabel"># suas rádios</div>
+    <div id="station-list"></div>
+    <button id="btn-new">+ nova rádio</button>
+    <div class="sidefoot">
+      <b id="stat-line">0 plays · 0 min ouvidos</b><br><br>
+      <code>espaço</code> play/pause · <code>n</code> próxima<br>
+      <code>p</code> anterior · <code>m</code> mudo · <code>f</code> favoritar<br><br>
+      fonte 1: youtube oculto<br>
+      fonte 2: yt-dlp · fonte 3: alternativa
+    </div>
+  </aside>
+
+  <main>
+    <section id="home">
+      <h1><span class="prompt">$</span> tocar rádio --agora</h1>
+      <p class="sub">Escolha uma estação. Ela toca <b>em shuffle infinito</b>, com <b>vinheta falada</b> entre as músicas. Se uma faixa travar ou for bloqueada, o player tenta outra fonte sozinho — <b>a rádio não para</b>.</p>
+      <input id="search" type="search" placeholder="buscar rádio ou música...  ( / )">
+      <div class="grid" id="grid"></div>
+    </section>
+
+    <section id="detail">
+      <button class="back" id="btn-back">← voltar</button>
+      <div class="dhead">
+        <img id="d-cover" alt="">
+        <div>
+          <div class="k">RÁDIO · SHUFFLE INFINITO</div>
+          <h2 id="d-name"></h2>
+          <p id="d-desc"></p>
+          <div class="dactions">
+            <button class="btn primary" id="d-play">▶ tocar rádio</button>
+            <button class="btn" id="d-share">⧉ compartilhar</button>
+            <button class="btn" id="d-addtrack">+ adicionar faixa</button>
+            <button class="btn" id="d-edit">editar</button>
+            <button class="btn danger" id="d-delete">apagar</button>
+          </div>
+          <div class="k" id="d-meta"></div>
+        </div>
+      </div>
+      <table class="tracks"><thead><tr><th>#</th><th>Título</th><th>Artista</th><th>Status</th></tr></thead><tbody id="d-tracks"></tbody></table>
+    </section>
+  </main>
+
+  <div id="queuecol">
+    <h4># A SEGUIR <button id="btn-reshuffle" title="re-embaralhar a fila">↻ embaralhar</button></h4>
+    <div id="queue"></div>
+    <h4 style="margin-top:20px"># HISTÓRICO</h4>
+    <div id="history"></div>
+    <h4 style="margin-top:20px"># LOG DO PLAYER</h4>
+    <div id="log"></div>
+  </div>
+
+  <footer>
+    <div class="nowp">
+      <img id="p-cover" alt="">
+      <div><div class="t" id="p-title">Nada tocando</div><div class="a" id="p-artist">escolha uma rádio pra começar</div></div>
+      <span class="srcbadge" id="p-src" style="display:none">youtube</span>
+    </div>
+    <div class="controls">
+      <div class="cbtns">
+        <button id="c-prev" title="anterior (p)">⏮</button>
+        <button id="c-play" class="main" title="play/pause (espaço)">▶</button>
+        <button id="c-next" title="próxima (n)">⏭</button>
+        <button id="c-fav" title="favoritar faixa atual (f)">♥</button>
+        <button id="c-ban" title="não tocar esta faixa nesta rádio">⊘</button>
+        <button id="c-retry" title="tentar esta faixa de novo">↻</button>
+        <button id="c-vinheta" class="on" title="vinhetas ligadas/desligadas">VINHETA</button>
+      </div>
+      <div class="progress"><span id="t-cur">0:00</span><div id="bar"><div id="fill"></div></div><span id="t-dur">0:00</span></div>
+    </div>
+    <div class="rightc">
+      <label>⏲ <select id="sleep" title="desligar sozinho (sleep timer)">
+        <option value="0">sem timer</option><option value="15">15 min</option><option value="30">30 min</option>
+        <option value="60">60 min</option><option value="90">90 min</option></select></label>
+      <span id="sleep-left"></span>
+      <span>vol</span><input type="range" id="vol" min="0" max="100" value="80">
+    </div>
+  </footer>
+</div>
+
+<div id="vinheta"></div>
+<div id="toast"></div>
+<div id="yt-holder"><div id="yt-player"></div></div>
+<audio id="fallback-audio" preload="auto"></audio>
+
+<div class="modal" id="modal-station">
+  <div class="sheet">
+    <h3 id="ms-title">Nova rádio</h3>
+    <p class="hint">Cole um link do YouTube por linha. Formato: <b>Artista - Título | link</b> — ou só o link.</p>
+    <label>Nome da rádio</label><input id="f-name" placeholder="ex: Jonas Brothers">
+    <label>Descrição</label><input id="f-desc" placeholder="ex: Discografia em shuffle infinito">
+    <label>Texto da vinheta (falado entre as músicas)</label><input id="f-slogan" placeholder="ex: Você está ouvindo Jonas Brothers Radio">
+    <label>Cor</label><div class="swatch" id="f-colors"></div>
+    <label>Faixas — uma por linha</label><textarea id="f-tracks" placeholder="Jonas Brothers - Sucker | https://www.youtube.com/watch?v=CnAmeh0-E-U"></textarea>
+    <div class="row"><button class="btn" data-close>cancelar</button><button class="btn primary" id="f-save">salvar rádio</button></div>
+  </div>
+</div>
+
+<div class="modal" id="modal-track">
+  <div class="sheet">
+    <h3>Adicionar faixa</h3>
+    <p class="hint">Um link do YouTube (ou só o ID do vídeo).</p>
+    <label>Artista - Título</label><input id="t-name" placeholder="ex: Jonas Brothers - Lovebug">
+    <label>Link do YouTube</label><input id="t-url" placeholder="https://www.youtube.com/watch?v=...">
+    <div class="row"><button class="btn" data-close>cancelar</button><button class="btn primary" id="t-save">adicionar</button></div>
+  </div>
+</div>
+
+<div class="modal" id="modal-settings">
+  <div class="sheet">
+    <h3>Ferramentas</h3>
+    <p class="hint">Se um vídeo bloquear o embed, o player tenta: <b>yt-dlp</b> (backend abaixo) → <b>fonte alternativa</b> → <b>outra versão da mesma música</b> → próxima faixa. A rádio nunca fica travada numa faixa quebrada.</p>
+    <label>URL do backend yt-dlp (sem barra no final)</label><input id="s-backend" placeholder="ex: https://seu-backend.hf.space">
+    <label>Vinheta a cada quantas músicas?</label>
+    <select id="s-every"><option value="2">a cada 2</option><option value="3">a cada 3</option><option value="4">a cada 4</option><option value="5">a cada 5</option></select>
+    <label>Voz da vinheta</label>
+    <select id="s-voice"><option value="on">ligada (TTS do navegador, pt-BR)</option><option value="off">desligada (só o aviso na tela)</option></select>
+    <label>Suas rádios (backup)</label>
+    <div class="row" style="justify-content:flex-start;margin-top:4px">
+      <button class="btn" id="s-export">↓ exportar rádios (.json)</button>
+      <button class="btn" id="s-import-btn">↑ importar rádios</button>
+      <input type="file" id="s-import" accept="application/json" style="display:none">
+      <button class="btn" id="s-unban">limpar faixas bloqueadas</button>
+    </div>
+    <p class="hint" id="s-stats" style="margin-top:14px"></p>
+    <div class="row"><button class="btn" data-close>cancelar</button><button class="btn primary" id="s-save">salvar</button></div>
+  </div>
+</div>
+
+<div class="modal" id="modal-help">
+  <div class="sheet">
+    <h3>Atalhos</h3>
+    <table>
+      <tr><td><kbd>espaço</kbd></td><td>play / pause</td><td><kbd>n</kbd> / <kbd>p</kbd></td><td>próxima / anterior</td></tr>
+      <tr><td><kbd>f</kbd></td><td>favoritar faixa atual</td><td><kbd>m</kbd></td><td>mudo</td></tr>
+      <tr><td><kbd>/</kbd></td><td>buscar</td><td><kbd>←</kbd> <kbd>→</kbd></td><td>voltar / avançar 10s</td></tr>
+    </table>
+    <p class="hint" style="margin-top:14px">No celular/notebook, os botões de mídia do teclado e do fone (play, próxima, anterior) também controlam a rádio. O timer ⏲ no player desliga sozinho. Faixas que falham são lembradas por 24h e puladas automaticamente.</p>
+    <div class="row"><button class="btn primary" data-close>fechar</button></div>
+  </div>
+</div>
+
+<script src="tracks-data.js"></script>
+<script src="https://www.youtube.com/iframe_api"></script>
+<script>
+"use strict";
+/* ===== dados: faixas validadas (tracks-data.js) + reserva minima ===== */
+const FALLBACK_TRACKS = {
+ jonas:[["Jonas Brothers","Sucker","CnAmeh0-E-U"],["Jonas Brothers","Burnin' Up","5KNEZJ6KkLI"],["Jonas Brothers","Year 3000","HSry5-qfVFs"],["Jonas Brothers","S.O.S.","EbBGkqll8lI"]],
+ tiktok:[["Sabrina Carpenter","Espresso","eVli-tstM5E"],["ROSÉ & Bruno Mars","APT.","ekr2nIex040"],["Billie Eilish","BIRDS OF A FEATHER","V9PVRfjEBTI"]],
+ hits2010:[["Lady Gaga","Bad Romance","qrO4YZeyl0I"],["Ke$ha","TiK ToK","iP6XpLQM2Cs"],["Bruno Mars","Just The Way You Are","LjhCEhWiKXk"]],
+ alltime:[["Luis Fonsi ft. Daddy Yankee","Despacito","kJQP7kiw5Fk"],["Ed Sheeran","Shape of You","JGwWNGJdvx8"],["Alan Walker","Faded","60ItHLz5WEA"]]};
+const TD = (typeof window!=="undefined" && window.TRACKS_DATA) ? window.TRACKS_DATA : {};
+function tracksOf(key){ const t = TD[key] && TD[key].length ? TD[key] : FALLBACK_TRACKS[key]; return t.map(x=>({artist:x[0],title:x[1],id:x[2]})); }
+const BUILTIN = [
+ {id:"jonas",name:"Jonas Brothers Radio",desc:"A discografia dos Jonas em shuffle infinito — álbuns, Nick Jonas, DNCE e os clássicos de 2007 ao comeback.",slogan:"Você está ouvindo Jonas Brothers Radio, na Omarchy Radio. Só os brothers, sem parar.",color:"#f38ba8",custom:false,tracks:tracksOf("jonas")},
+ {id:"tiktok",name:"Hits no TikTok Hoje",desc:"O que está bombando no feed agora, em rádio — sem precisar abrir o TikTok. Pop viral e refrão chiclete o dia todo.",slogan:"Você está ouvindo Hits no TikTok Hoje, na Omarchy Radio. Direto do seu feed, sem o feed.",color:"#94e2d5",custom:false,tracks:tracksOf("tiktok")},
+ {id:"hits2010",name:"Hits 2010",desc:"A geração 2010 no talo: Gaga, Kesha, Eminem, Katy e Bruno Mars como tocava na FM na época do iPod.",slogan:"Você está ouvindo Hits 2010, na Omarchy Radio. De volta pra época do iPod.",color:"#fab387",custom:false,tracks:tracksOf("hits2010")},
+ {id:"alltime",name:"Mais Ouvidas de Todos os Tempos",desc:"Os maiores hits da história do YouTube em shuffle. Números absurdos, refrões que todo mundo sabe de cor.",slogan:"Você está ouvindo as Mais Ouvidas de Todos os Tempos, na Omarchy Radio.",color:"#cba6f7",custom:false,tracks:tracksOf("alltime")}
+];
+const COLORS=["#cba6f7","#89b4fa","#94e2d5","#a6e3a1","#fab387","#f9e2af","#f38ba8","#f5c2e7"];
+const $=s=>document.querySelector(s);
+const store={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+let customStations=store.get("omarchy:custom",[]);
+let extraTracks=store.get("omarchy:extra",{});
+let favorites=store.get("omarchy:favs",[]);
+let banned=store.get("omarchy:banned",{});           // stationId -> [trackId]
+let badIds=store.get("omarchy:badids",{});            // trackId -> timestamp (falhou)
+let stats=store.get("omarchy:stats",{plays:0,seconds:0});
+let playHistory=store.get("omarchy:history",[]);
+let settings=Object.assign({backend:store.get("omarchy:backend",""),every:3,voice:"on",vinheta:true,vol:80},store.get("omarchy:settings",{}));
+const _qs=new URLSearchParams(location.search);
+if(_qs.get("backend")) settings.backend=_qs.get("backend").replace(/\/$/,"");
+/* limpa badIds vencidos (24h) */
+{ const now=Date.now(); Object.keys(badIds).forEach(k=>{ if(now-badIds[k]>864e5) delete badIds[k]; }); }
+function favStation(){ return {id:"favs",name:"Favoritas",desc:"Tudo que você favoritou com o ♥, em shuffle.",slogan:"Você está ouvindo suas Favoritas, na Omarchy Radio.",color:"#f38ba8",custom:false,tracks:favorites.slice()}; }
+function allStations(){
+  const base=BUILTIN.map(s=>({...s,tracks:s.tracks.concat(extraTracks[s.id]||[])}));
+  return base.concat(customStations, favorites.length?[favStation()]:[]);
+}
+function stationById(id){ if(id==="favs") return favStation(); return allStations().find(s=>s.id===id); }
+function extractId(input){
+  if(!input) return null; input=String(input).trim();
+  const m=input.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+  if(m) return m[1]; if(/^[A-Za-z0-9_-]{11}$/.test(input)) return input; return null;
+}
+function parseTrackLine(line,idx){
+  const parts=line.split("|").map(x=>x.trim());
+  const id=extractId(parts[parts.length-1]); if(!id) return null;
+  let artist="Faixa", title="Faixa "+(idx+1);
+  const label=(parts.length>1?parts[0]:parts[0].replace(/https?:\/\/\S+/,"").trim());
+  if(label && label!==parts[parts.length-1]){
+    const dash=label.split(" - ");
+    if(dash.length>1){artist=dash[0].trim(); title=dash.slice(1).join(" - ").trim();} else title=label;
+  }
+  return {artist,title,id};
+}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function isBad(id){ return !!badIds[id]; }
+function isBanned(stationId,id){ return (banned[stationId]||[]).includes(id); }
+function markBad(id){ badIds[id]=Date.now(); store.set("omarchy:badids",badIds); }
+/* ===== estado ===== */
+let yt=null, ytReady=false, currentStation=null, queue=[], historyStack=[], current=null;
+let source="none", playing=false, sinceVinheta=0, detailId=null, editingId=null, selectedColor=COLORS[0];
+let playSeq=0, watchdog=null, audioWatchdog=null, endedGuard=false, lastNavAt=0, sleepTimer=null, sleepDeadline=0;
+const audioEl=$("#fallback-audio");
+function log(msg,cls){
+  const el=$("#log"); if(!el) return;
+  const time=new Date().toLocaleTimeString("pt-BR",{hour12:false});
+  el.innerHTML+=`\n<span class="${cls||""}">[${time}] ${esc(msg)}</span>`;
+  while(el.children.length>60) el.removeChild(el.firstChild);
+  el.scrollTop=el.scrollHeight;
+}
+window.addEventListener("error",e=>{ try{log("erro capturado (rádio continua): "+(e.message||"desconhecido"),"err")}catch(_){} });
+window.addEventListener("unhandledrejection",e=>{ try{log("falha de rede/serviço ignorada — rádio continua","warn")}catch(_){} });
+function toast(msg){const t=$("#toast");t.textContent=msg;t.style.display="block";clearTimeout(t._h);t._h=setTimeout(()=>t.style.display="none",3400)}
+function thumb(id){return `https://i.ytimg.com/vi/${id}/hqdefault.jpg`}
+function fmt(s){s=Math.max(0,Math.floor(s||0));return Math.floor(s/60)+":"+String(s%60).padStart(2,"0")}
+function shuffled(arr){const a=arr.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
+function usableTracks(station){
+  return station.tracks.filter(t=>!isBad(t.id) && !isBanned(station.id,t.id));
+}
+</script>
+<script>
+/* ===== fonte 1: YouTube oculto ===== */
+window.onYouTubeIframeAPIReady=function(){
+  try{
+    yt=new YT.Player("yt-player",{width:4,height:4,playerVars:{playsinline:1,controls:0,disablekb:1},
+      events:{onReady(){ytReady=true;try{yt.setVolume(settings.vol)}catch(e){} log("player youtube pronto (oculto, áudio-only)","ok")},
+        onStateChange:onYtState,onError:onYtError}});
+  }catch(e){ log("youtube indisponível neste navegador — usando só fallbacks","err"); }
+};
+function onYtState(e){
+  if(!current) return;
+  if(e.data===YT.PlayerState.PLAYING){ clearTimeout(watchdog); source="youtube"; markPlaying(); }
+  else if(e.data===YT.PlayerState.PAUSED){ playing=false; updatePlayerUI(); }
+  else if(e.data===YT.PlayerState.ENDED){ if(endedGuard) return; endedGuard=true; log("faixa terminou"); setTimeout(()=>nextTrack(),150); }
+}
+function onYtError(e){
+  if(!current) return;
+  log("youtube bloqueou esta faixa (cód. "+(e&&e.data)+") — tentando outra fonte","err");
+  if(current._replaced&&current._fallbackStarted){ failTrack(playSeq,{artist:current.artist,title:current.title,id:current._failedId}); return; }
+  tryFallbacks(playSeq,"youtube");
+}
+function stopAllSources(){
+  clearTimeout(watchdog); clearTimeout(audioWatchdog);
+  try{ if(yt&&ytReady) yt.stopVideo(); }catch(e){}
+  try{ audioEl.pause(); audioEl.removeAttribute("src"); audioEl.load(); }catch(e){}
+  if("speechSynthesis" in window){ try{speechSynthesis.cancel()}catch(e){} }
+}
+function markPlaying(){
+  playing=true; endedGuard=false;
+  if(current && current._seq===playSeq && !current._counted){
+    current._counted=true; stats.plays++; store.set("omarchy:stats",stats); renderStats();
+    log("▶ "+current.title+" — "+current.artist+" (via "+source+")","ok");
+    playHistory=[{artist:current.artist,title:current.title,id:current.id,stationId:current.stationId}].concat(playHistory.filter(h=>h.id!==current.id)).slice(0,30);
+    store.set("omarchy:history",playHistory); renderHistory();
+  }
+  updatePlayerUI(); renderQueue();
+}
+/* ===== reprodução com cadeia de fallback (nunca trava) ===== */
+function playTrack(track,station){
+  const seq=++playSeq;
+  stopAllSources();
+  current={artist:track.artist,title:track.title,id:track.id,stationId:station.id,stationName:station.name,_seq:seq,_counted:false,_replaced:false,_fallbackStarted:false,_failedId:track.id};
+  source="loading"; playing=false; updatePlayerUI(); renderQueue(); renderGrid(); renderSidebar();
+  $("#way-status").textContent="carregando: "+track.title;
+  if(ytReady&&yt){
+    try{ yt.loadVideoById(track.id); yt.setVolume(settings.vol); }catch(e){ tryFallbacks(seq,"youtube"); return; }
+    clearTimeout(watchdog);
+    watchdog=setTimeout(()=>{ if(seq===playSeq && source==="loading"){ log("youtube demorou demais — tentando outra fonte","warn"); tryFallbacks(seq,"youtube"); } },12000);
+  } else {
+    /* youtube ainda carregando: espera curta, senao cai pro fallback */
+    clearTimeout(watchdog);
+    watchdog=setTimeout(()=>{ if(seq===playSeq && source==="loading") tryFallbacks(seq,"youtube"); },3500);
+    const waitYt=setInterval(()=>{ if(seq!==playSeq){clearInterval(waitYt);return} if(ytReady&&yt){clearInterval(waitYt);clearTimeout(watchdog); playTrack(track,station);} },400);
+  }
+}
+let audioFailCb=null;
+audioEl.addEventListener("error",()=>{ if(audioFailCb){ const cb=audioFailCb; audioFailCb=null; cb(); } });
+audioEl.addEventListener("ended",()=>{ if(source==="ytdlp"||source==="alt"){ if(endedGuard) return; endedGuard=true; log("faixa terminou"); setTimeout(()=>nextTrack(),150); } });
+audioEl.addEventListener("playing",()=>{ if(source==="ytdlp"||source==="alt"){ clearTimeout(audioWatchdog); markPlaying(); } });
+audioEl.addEventListener("pause",()=>{ if(source==="ytdlp"||source==="alt"){ playing=false; updatePlayerUI(); } });
+function playAudioUrl(url,seq,label,onFail){
+  let failed=false;
+  const fail=()=>{ if(failed||seq!==playSeq) return; failed=true; audioFailCb=null; onFail(); };
+  audioFailCb=fail;
+  clearTimeout(audioWatchdog);
+  audioWatchdog=setTimeout(()=>{ if(seq===playSeq && audioEl.currentTime<1 && audioEl.readyState<3){ log(label+" demorou demais — próxima fonte","warn"); fail(); } },15000);
+  try{
+    audioEl.src=url; audioEl.volume=settings.vol/100;
+    const p=audioEl.play();
+    if(p&&p.catch) p.catch(()=>{ log(label+" recusou tocar — próxima fonte","warn"); fail(); });
+  }catch(e){ fail(); }
+}
+async function tryFallbacks(seq,fromStage){
+  if(seq!==playSeq||!current||current._fallbackStarted) return;
+  current._fallbackStarted=true; clearTimeout(watchdog);
+  const track={artist:current.artist,title:current.title,id:current.id};
+  /* etapa A: backend yt-dlp */
+  if(settings.backend){
+    log("tentando yt-dlp (backend)...");
+    source="ytdlp"; updatePlayerUI();
+    playAudioUrl(settings.backend.replace(/\/$/,"")+"/stream/"+encodeURIComponent(track.id),seq,"yt-dlp",
+      ()=>{ log("yt-dlp falhou — tentando fonte alternativa","warn"); tryAltSource(seq,track); });
+    return;
+  }
+  tryAltSource(seq,track);
+}
+async function tryAltSource(seq,track){
+  if(seq!==playSeq) return;
+  log("tentando fonte alternativa...");
+  const url=await getAltAudio(track.id).catch(()=>null);
+  if(seq!==playSeq) return;
+  if(url){
+    source="alt"; updatePlayerUI();
+    playAudioUrl(url,seq,"fonte alternativa",()=>{ log("fonte alternativa falhou — procurando outra versão","warn"); tryReplacement(seq,track); });
+  } else {
+    tryReplacement(seq,track);
+  }
+}
+async function tryReplacement(seq,track){
+  if(seq!==playSeq||!current) return;
+  if(current._replaced) return; /* outra cadeia ja achou a versao substituta */
+  log("procurando outra versão de: "+track.title);
+  const altId=await searchAltTrack(track).catch(()=>null);
+  if(seq!==playSeq||!current) return;
+  if(altId && altId!==track.id && !isBad(altId)){
+    current._replaced=true; current.id=altId;
+    log("outra versão encontrada — tocando ela","ok");
+    source="loading"; updatePlayerUI();
+    if(ytReady&&yt){
+      try{ yt.loadVideoById(altId); yt.setVolume(settings.vol); }catch(e){ failTrack(seq,track); return; }
+      clearTimeout(watchdog);
+      watchdog=setTimeout(()=>{ if(seq===playSeq&&source==="loading") failTrack(seq,track); },12000);
+    } else failTrack(seq,track);
+  } else failTrack(seq,track);
+}
+function failTrack(seq,track){
+  if(seq!==playSeq) return;
+  markBad(track.id);
+  log("faixa pulada e marcada por 24h: "+track.title,"err");
+  toast("Faixa indisponível em todas as fontes — pulando: "+track.title);
+  renderGrid(); if(detailId) openDetail(detailId);
+  setTimeout(()=>{ if(seq===playSeq) nextTrack(true); },400);
+}
+/* ===== fontes alternativas (Invidious público) ===== */
+function fetchTimeout(url,ms){
+  const c=new AbortController(); const t=setTimeout(()=>c.abort(),ms||8000);
+  return fetch(url,{signal:c.signal}).finally(()=>clearTimeout(t));
+}
+let _altInstances=null;
+async function getAltInstances(){
+  if(_altInstances) return _altInstances;
+  const hardcoded=["https://yewtu.be","https://inv.nadeko.net","https://invidious.nerdvpn.de","https://inv.us.projectsegfau.lt"];
+  try{
+    const r=await fetchTimeout("https://api.invidious.io/instances.json",8000);
+    const data=await r.json();
+    const list=data.filter(x=>x[1]&&x[1].api&&x[1].cors&&x[1].uri).map(x=>x[1].uri.replace(/\/$/,""));
+    _altInstances=shuffled(list).slice(0,3).concat(hardcoded).filter((v,i,a)=>a.indexOf(v)===i).slice(0,4);
+  }catch(e){ _altInstances=hardcoded; }
+  return _altInstances;
+}
+async function getAltAudio(id){
+  const instances=await getAltInstances();
+  for(const inst of instances){
+    try{
+      const r=await fetchTimeout(inst+"/api/v1/videos/"+encodeURIComponent(id),6000);
+      if(!r.ok) continue;
+      const data=await r.json();
+      const fmts=(data.adaptiveFormats||[]).filter(f=>(f.type||"").includes("audio")).sort((a,b)=>(b.bitrate||0)-(a.bitrate||0));
+      if(fmts.length&&fmts[0].url) return fmts[0].url;
+    }catch(e){ /* tenta a proxima instancia */ }
+  }
+  return null;
+}
+async function searchAltTrack(track){
+  const instances=await getAltInstances();
+  const q=encodeURIComponent(track.artist+" "+track.title+" official audio");
+  for(const inst of instances){
+    try{
+      const r=await fetchTimeout(inst+"/api/v1/search?q="+q+"&type=video",6000);
+      if(!r.ok) continue;
+      const data=await r.json();
+      for(const v of data){ if(v.videoId&&v.videoId!==track.id&&(v.lengthSeconds||0)>=55&&(v.lengthSeconds||0)<=620) return v.videoId; }
+    }catch(e){ /* proxima */ }
+  }
+  return null;
+}
+/* ===== fila, vinheta, navegação ===== */
+function playStation(station,specificTrack){
+  currentStation=station;
+  const usable=usableTracks(station);
+  if(!station.tracks.length){ toast("Essa rádio não tem faixas ainda — adicione com + faixa"); return; }
+  if(!usable.length){ toast("Todas as faixas falharam nas últimas 24h. Limpe em ⚙ Ferramentas → limpar faixas bloqueadas."); return; }
+  if(specificTrack && !isBad(specificTrack.id)){
+    queue=shuffled(usable.filter(t=>t.id!==specificTrack.id)); historyStack=[]; sinceVinheta=0;
+    playTrack(specificTrack,station);
+  } else {
+    queue=shuffled(usable); historyStack=[]; sinceVinheta=0;
+    playTrack(queue.shift(),station);
+  }
+  log("rádio no ar: "+station.name+" ("+usable.length+" faixas disponíveis)","ok");
+}
+function sting(){
+  try{
+    const ctx=sting._ctx||(sting._ctx=new (window.AudioContext||window.webkitAudioContext)());
+    if(ctx.state==="suspended") ctx.resume();
+    const o=ctx.createOscillator(), g=ctx.createGain();
+    o.type="triangle"; o.frequency.setValueAtTime(660,ctx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(990,ctx.currentTime+.18);
+    g.gain.setValueAtTime(.10,ctx.currentTime); g.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.35);
+    o.connect(g).connect(ctx.destination); o.start(); o.stop(ctx.currentTime+.36);
+  }catch(e){}
+}
+function maybeVinheta(done){
+  sinceVinheta++;
+  if(!settings.vinheta||!currentStation||sinceVinheta<Number(settings.every||3)){ done(); return; }
+  sinceVinheta=0;
+  const slogan=currentStation.slogan||("Você está ouvindo "+currentStation.name+", na Omarchy Radio.");
+  const box=$("#vinheta");
+  box.innerHTML=`<b>♪ VINHETA ♪</b><br>${esc(slogan)}`; box.classList.add("show");
+  log("vinheta: "+slogan,"warn"); sting();
+  let finished=false;
+  const finish=()=>{ if(finished) return; finished=true; box.classList.remove("show"); done(); };
+  if(settings.voice==="on"&&"speechSynthesis" in window){
+    try{
+      speechSynthesis.cancel();
+      const u=new SpeechSynthesisUtterance(slogan); u.lang="pt-BR"; u.rate=1.02;
+      const v=speechSynthesis.getVoices().find(v=>v.lang&&v.lang.toLowerCase().startsWith("pt"));
+      if(v) u.voice=v;
+      u.onend=finish; u.onerror=finish;
+      speechSynthesis.speak(u);
+      setTimeout(finish,Math.min(9000,2600+slogan.length*85));
+    }catch(e){ setTimeout(finish,1200); }
+  } else setTimeout(finish,1600);
+}
+function nextTrack(skipVinheta){
+  if(!currentStation) return;
+  const now=Date.now(); if(now-lastNavAt<250) return; lastNavAt=now;
+  if(current) historyStack.push({artist:current.artist,title:current.title,id:current._origId||current.id});
+  const doNext=()=>{
+    const usable=usableTracks(currentStation);
+    if(!queue.length) queue=shuffled(usable);
+    queue=queue.filter(t=>!isBad(t.id)&&!isBanned(currentStation.id,t.id));
+    if(!queue.length){ playing=false; source="none"; updatePlayerUI(); toast("Sem faixas disponíveis nesta rádio agora"); log("fila vazia — todas falharam ou foram bloqueadas","err"); return; }
+    const nx=queue.shift();
+    playTrack(nx,currentStation);
+  };
+  if(skipVinheta) doNext(); else maybeVinheta(doNext);
+}
+function prevTrack(){
+  const prev=historyStack.pop();
+  if(!prev||!currentStation){ toast("Sem faixa anterior"); return; }
+  delete badIds[prev.id]; /* dar nova chance pra anterior */
+  if(current) queue.unshift({artist:current.artist,title:current.title,id:current.id});
+  playTrack(prev,currentStation);
+}
+function togglePlay(){
+  if(!current){ const s=allStations()[0]; if(s) playStation(s); return; }
+  if(source==="ytdlp"||source==="alt"){ if(playing) audioEl.pause(); else audioEl.play().catch(()=>{}); return; }
+  if(!ytReady||!yt) return;
+  try{ const st=yt.getPlayerState(); if(st===YT.PlayerState.PLAYING) yt.pauseVideo(); else yt.playVideo(); }catch(e){}
+}
+function seekBy(sec){
+  if(source==="ytdlp"||source==="alt"){ audioEl.currentTime=Math.max(0,(audioEl.currentTime||0)+sec); return; }
+  if(ytReady&&yt&&yt.getCurrentTime) try{ yt.seekTo(Math.max(0,yt.getCurrentTime()+sec),true); }catch(e){}
+}
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden&&"speechSynthesis" in window){ try{ if(speechSynthesis.paused) speechSynthesis.resume(); }catch(e){} } });
+window.addEventListener("online",()=>{ $("#netstatus").textContent="online"; $("#netstatus").classList.remove("off"); log("conexão voltou","ok"); if(current&&!playing&&source==="loading") playTrack(current,currentStation); });
+window.addEventListener("offline",()=>{ $("#netstatus").textContent="offline"; $("#netstatus").classList.add("off"); log("sem conexão — a rádio retoma quando voltar","err"); });
+</script>
+<script>
+/* ===== UI ===== */
+function updatePlayerUI(){
+  $("#onair").classList.toggle("live",!!playing);
+  $("#c-play").textContent=playing?"⏸":"▶";
+  if(!current){ $("#p-title").textContent="Nada tocando"; $("#p-artist").textContent="escolha uma rádio pra começar"; $("#p-src").style.display="none"; $("#c-fav").classList.remove("fav-on"); return; }
+  $("#p-cover").src=thumb(current.id);
+  $("#p-title").textContent=current.title;
+  $("#p-artist").textContent=current.artist+" · "+current.stationName;
+  const badge=$("#p-src"); badge.style.display="inline-block";
+  badge.textContent=source==="ytdlp"?"yt-dlp":source==="alt"?"alternativa":source==="youtube"?"youtube":"...";
+  badge.className="srcbadge"+(source==="ytdlp"?" ytdlp":source==="alt"?" alt":"");
+  $("#c-fav").classList.toggle("fav-on",favorites.some(f=>f.id===current.id));
+  $("#way-status").textContent=(playing?"tocando: ":"pausado: ")+current.title+" — "+current.artist;
+  document.title=(playing?"▶ ":"")+current.title+" — "+current.artist+" · omarchy-radio";
+  if("mediaSession" in navigator){
+    try{
+      navigator.mediaSession.metadata=new MediaMetadata({title:current.title,artist:current.artist,album:current.stationName,
+        artwork:[{src:thumb(current.id),sizes:"480x360",type:"image/jpeg"}]});
+      navigator.mediaSession.setActionHandler("play",togglePlay);
+      navigator.mediaSession.setActionHandler("pause",togglePlay);
+      navigator.mediaSession.setActionHandler("nexttrack",()=>nextTrack(true));
+      navigator.mediaSession.setActionHandler("previoustrack",prevTrack);
+      navigator.mediaSession.setActionHandler("seekbackward",()=>seekBy(-10));
+      navigator.mediaSession.setActionHandler("seekforward",()=>seekBy(10));
+    }catch(e){}
+  }
+}
+function renderStats(){ $("#stat-line").textContent=stats.plays+" plays · "+Math.floor(stats.seconds/60)+" min ouvidos"; $("#fav-count").textContent=favorites.length; const s=$("#s-stats"); if(s) s.textContent="Estatísticas neste navegador: "+stats.plays+" plays, "+Math.floor(stats.seconds/60)+" minutos ouvidos, "+favorites.length+" favoritas, "+Object.keys(badIds).length+" faixas marcadas com falha."; }
+function renderSidebar(){
+  const list=$("#station-list"); list.innerHTML="";
+  allStations().filter(s=>s.id!=="favs").forEach(s=>{
+    const b=document.createElement("button");
+    b.className="navitem"+(currentStation&&currentStation.id===s.id?" playing-st":"")+(detailId===s.id?" active":"");
+    b.innerHTML=`<span class="sw" style="background:${esc(s.color||"#cba6f7")}"></span><span class="nm">${esc(s.name.replace(/ Radio$/,""))}</span><span class="count">${s.tracks.length}</span>`;
+    b.onclick=()=>openDetail(s.id); list.appendChild(b);
+  });
+  renderStats();
+}
+function renderGrid(filter){
+  const grid=$("#grid"); grid.innerHTML="";
+  const q=(filter||"").toLowerCase();
+  allStations().forEach(s=>{
+    const hay=(s.name+" "+(s.desc||"")+" "+s.tracks.map(t=>t.artist+" "+t.title).join(" ")).toLowerCase();
+    if(q&&!hay.includes(q)) return;
+    const first=s.tracks.find(t=>!isBad(t.id))||s.tracks[0];
+    const card=document.createElement("button"); card.className="card"+(currentStation&&currentStation.id===s.id?" is-playing":"");
+    card.style.setProperty("--c",s.color||"#cba6f7");
+    card.innerHTML=`${first?`<img src="${thumb(first.id)}" alt="" loading="lazy">`:""}<h3>${esc(s.name)}</h3><p>${esc(s.desc||"")}</p><div class="meta"><em>● rádio</em> · ${s.tracks.length} faixas · shuffle + vinheta</div><span class="playbtn">▶</span>`;
+    card.onclick=e=>{ if(e.target.classList.contains("playbtn")) playStation(s); else openDetail(s.id); };
+    grid.appendChild(card);
+  });
+  if(!grid.children.length) grid.innerHTML=`<p style="color:var(--subtext)">Nenhuma rádio bate com essa busca.</p>`;
+}
+function renderQueue(){
+  const q=$("#queue");
+  if(!current){ q.innerHTML=`<div class="qitem">nada no ar ainda</div>`; return; }
+  let html=`<div class="qitem now"><b>${esc(current.title)}</b>${esc(current.artist)} · tocando agora (${esc($("#p-src").textContent||source)})</div>`;
+  queue.slice(0,6).forEach(t=>{ html+=`<div class="qitem"><b>${esc(t.title)}</b>${esc(t.artist)}</div>`; });
+  q.innerHTML=html;
+}
+function renderHistory(){
+  const h=$("#history"); if(!h) return;
+  if(!playHistory.length){ h.innerHTML=`<div class="qitem">nada ainda</div>`; return; }
+  h.innerHTML="";
+  playHistory.slice(0,8).forEach(t=>{
+    const d=document.createElement("div"); d.className="hitem";
+    d.innerHTML=`<b>${esc(t.title)}</b> · ${esc(t.artist)}`;
+    d.title="tocar de novo";
+    d.onclick=()=>{ const s=stationById(t.stationId)||allStations()[0]; if(s){ currentStation=s; playTrack(t,s); } };
+    h.appendChild(d);
+  });
+}
+function openDetail(id){
+  detailId=id; const s=stationById(id); if(!s) return;
+  $("#home").style.display="none"; $("#detail").classList.add("open");
+  const first=s.tracks.find(t=>!isBad(t.id))||s.tracks[0];
+  $("#d-cover").src=first?thumb(first.id):""; $("#d-name").textContent=s.name; $("#d-name").style.color=s.color||"";
+  $("#d-desc").textContent=s.desc||"";
+  $("#d-meta").textContent=s.tracks.length+" faixas · "+usableTracks(s).length+" disponíveis agora · vinheta: “"+(s.slogan||"—")+"”";
+  $("#d-delete").style.display=s.custom?"":"none"; $("#d-edit").textContent=s.custom?"editar":"editar (cópia)";
+  const tb=$("#d-tracks"); tb.innerHTML="";
+  s.tracks.forEach((t,i)=>{
+    const row=document.createElement("tr");
+    if(current&&current.id===t.id) row.className="now"; else if(isBad(t.id)||isBanned(s.id,t.id)) row.className="bad";
+    row.innerHTML=`<td>${i+1}</td><td>${esc(t.title)}</td><td>${esc(t.artist)}</td><td>${isBanned(s.id,t.id)?"bloqueada por você":isBad(t.id)?"falhou (24h)":"ok"}</td>`;
+    row.onclick=()=>playStation(s,t); tb.appendChild(row);
+  });
+  $("#d-play").onclick=()=>playStation(s);
+  renderSidebar();
+}
+function closeDetail(){ detailId=null; $("#detail").classList.remove("open"); $("#home").style.display=""; renderSidebar(); }
+/* progresso + tempo ouvido + sleep timer */
+let _secTick=0;
+setInterval(()=>{
+  let cur=0,dur=0;
+  if(current&&(source==="ytdlp"||source==="alt")){ cur=audioEl.currentTime||0; dur=audioEl.duration||0; }
+  else if(current&&ytReady&&yt&&yt.getCurrentTime){ try{ cur=yt.getCurrentTime()||0; dur=yt.getDuration()||0; }catch(e){} }
+  $("#t-cur").textContent=fmt(cur); $("#t-dur").textContent=fmt(dur);
+  $("#fill").style.width=dur?(cur/dur*100)+"%":"0%";
+  if(playing){ stats.seconds+=.5; if(++_secTick>=30){ _secTick=0; store.set("omarchy:stats",stats); renderStats(); } }
+  if(sleepDeadline){
+    const left=sleepDeadline-Date.now();
+    if(left<=0){ sleepDeadline=0; $("#sleep").value="0"; $("#sleep-left").textContent=""; try{yt&&yt.pauseVideo()}catch(e){} audioEl.pause(); playing=false; updatePlayerUI(); toast("⏲ sleep timer: rádio desligada"); log("sleep timer desligou a rádio","warn"); }
+    else $("#sleep-left").textContent="⏲ "+fmt(left/1000);
+  }
+},500);
+$("#bar").addEventListener("click",e=>{
+  const r=e.currentTarget.getBoundingClientRect(); const ratio=(e.clientX-r.left)/r.width;
+  if(source==="ytdlp"||source==="alt"){ if(audioEl.duration) audioEl.currentTime=ratio*audioEl.duration; }
+  else if(ytReady&&yt&&yt.getDuration&&yt.getDuration()) yt.seekTo(ratio*yt.getDuration(),true);
+});
+setInterval(()=>{ $("#clock").textContent=new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}); },1000);
+$("#clock").textContent=new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+/* ===== modais e CRUD ===== */
+function openModal(id){ $(id).classList.add("open"); } function closeModals(){ document.querySelectorAll(".modal").forEach(m=>m.classList.remove("open")); }
+document.querySelectorAll("[data-close]").forEach(b=>b.onclick=closeModals);
+document.querySelectorAll(".modal").forEach(m=>m.addEventListener("click",e=>{ if(e.target===m) closeModals(); }));
+function renderColorSwatches(){
+  const box=$("#f-colors"); box.innerHTML="";
+  COLORS.forEach(c=>{ const b=document.createElement("button"); b.style.background=c; b.className=c===selectedColor?"sel":""; b.onclick=()=>{ selectedColor=c; renderColorSwatches(); }; box.appendChild(b); });
+}
+function openStationForm(station){
+  editingId=station?station.id:null;
+  selectedColor=(station&&station.color)||COLORS[0]; renderColorSwatches();
+  $("#ms-title").textContent=station?(station.custom?"Editar rádio":"Editar (salva como cópia sua)"):"Nova rádio";
+  $("#f-name").value=station?station.name:""; $("#f-desc").value=station?(station.desc||""):"";
+  $("#f-slogan").value=station?(station.slogan||""):"";
+  $("#f-tracks").value=station?station.tracks.map(t=>`${t.artist} - ${t.title} | https://www.youtube.com/watch?v=${t.id}`).join("\n"):"";
+  openModal("#modal-station");
+}
+$("#f-save").onclick=()=>{
+  const name=$("#f-name").value.trim(); if(!name){ toast("Dê um nome pra rádio"); return; }
+  const tracks=$("#f-tracks").value.split("\n").map((l,i)=>parseTrackLine(l,i)).filter(Boolean);
+  if(!tracks.length){ toast("Nenhuma faixa válida — cole links do YouTube"); return; }
+  const data={name,desc:$("#f-desc").value.trim(),slogan:$("#f-slogan").value.trim()||("Você está ouvindo "+name+", na Omarchy Radio."),color:selectedColor,tracks,custom:true};
+  if(editingId&&customStations.some(s=>s.id===editingId)){ Object.assign(customStations.find(s=>s.id===editingId),data); log("rádio editada: "+name,"ok"); }
+  else { data.id="custom-"+Date.now(); customStations.push(data); editingId=data.id; log("rádio criada: "+name+" ("+tracks.length+" faixas)","ok"); }
+  store.set("omarchy:custom",customStations); closeModals(); renderGrid($("#search").value); renderSidebar(); openDetail(editingId); toast("Rádio salva neste navegador");
+};
+$("#btn-new").onclick=()=>openStationForm(null);
+$("#nav-home").onclick=closeDetail; $("#btn-back").onclick=closeDetail;
+$("#nav-favs").onclick=()=>{ if(!favorites.length){ toast("Nenhuma favorita ainda — use o ♥ no player"); return; } openDetail("favs"); };
+$("#d-edit").onclick=()=>{ const s=stationById(detailId); if(s) openStationForm(s); };
+$("#d-delete").onclick=()=>{
+  const s=stationById(detailId); if(!s||!s.custom) return;
+  if(!confirm("Apagar a rádio “"+s.name+"”?")) return;
+  customStations=customStations.filter(x=>x.id!==s.id); store.set("omarchy:custom",customStations);
+  closeDetail(); renderGrid(); renderSidebar(); toast("Rádio apagada");
+};
+$("#d-addtrack").onclick=()=>{ $("#t-name").value=""; $("#t-url").value=""; openModal("#modal-track"); };
+$("#t-save").onclick=()=>{
+  const s=stationById(detailId); if(!s) return;
+  const id=extractId($("#t-url").value); if(!id){ toast("Link inválido"); return; }
+  const label=$("#t-name").value.trim(); let artist="Faixa", title=label||"Nova faixa";
+  if(label.includes(" - ")){ const p=label.split(" - "); artist=p[0].trim(); title=p.slice(1).join(" - ").trim(); }
+  const track={artist,title,id};
+  if(s.custom){ customStations.find(x=>x.id===s.id).tracks.push(track); store.set("omarchy:custom",customStations); }
+  else { (extraTracks[s.id]=extraTracks[s.id]||[]).push(track); store.set("omarchy:extra",extraTracks); }
+  delete badIds[id]; store.set("omarchy:badids",badIds);
+  closeModals(); openDetail(s.id); toast("Faixa adicionada");
+};
+$("#d-share").onclick=async()=>{
+  const s=stationById(detailId); if(!s) return;
+  let url;
+  if(s.custom||s.id==="favs"){
+    const payload=btoa(unescape(encodeURIComponent(JSON.stringify({name:s.name,desc:s.desc,slogan:s.slogan,color:s.color,tracks:s.tracks}))));
+    url=location.origin+location.pathname+"#import="+payload;
+  } else url=location.origin+location.pathname+"?station="+encodeURIComponent(s.id);
+  try{ await navigator.clipboard.writeText(url); toast("Link da rádio copiado — quem abrir importa ela na hora"); }
+  catch(e){ prompt("Copie o link da rádio:",url); }
+};
+/* ferramentas */
+$("#btn-help").onclick=()=>openModal("#modal-help");
+$("#btn-settings").onclick=()=>{ $("#s-backend").value=settings.backend||""; $("#s-every").value=String(settings.every||3); $("#s-voice").value=settings.voice||"on"; renderStats(); openModal("#modal-settings"); };
+$("#s-save").onclick=()=>{
+  settings.backend=$("#s-backend").value.trim().replace(/\/$/,"");
+  settings.every=Number($("#s-every").value); settings.voice=$("#s-voice").value;
+  store.set("omarchy:settings",settings); store.set("omarchy:backend",settings.backend);
+  closeModals(); toast(settings.backend?"Backend yt-dlp salvo":"Configurações salvas");
+  log(settings.backend?("backend yt-dlp: "+settings.backend):"backend yt-dlp não configurado (fontes 1 e 3 continuam ativas)","warn");
+};
+$("#s-unban").onclick=()=>{ banned={}; badIds={}; store.set("omarchy:banned",banned); store.set("omarchy:badids",badIds); toast("Bloqueios e marcas de falha limpos"); log("faixas bloqueadas/falhas limpas — tudo liberado de novo","ok"); renderGrid(); };
+$("#s-export").onclick=()=>{
+  const blob=new Blob([JSON.stringify({stations:customStations,favorites},null,1)],{type:"application/json"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="omarchy-radio-minhas-radios.json"; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),2000); toast("Backup baixado");
+};
+$("#s-import-btn").onclick=()=>$("#s-import").click();
+$("#s-import").addEventListener("change",e=>{
+  const file=e.target.files[0]; if(!file) return;
+  file.text().then(txt=>{
+    try{
+      const data=JSON.parse(txt);
+      const list=Array.isArray(data)?data:(data.stations||[]);
+      let added=0;
+      list.forEach(s=>{
+        if(!s||!s.name||!Array.isArray(s.tracks)) return;
+        const tracks=s.tracks.map(t=>({artist:String(t.artist||"Faixa"),title:String(t.title||"Faixa"),id:extractId(t.id||t.url||"")||t.id})).filter(t=>t.id&&/^[A-Za-z0-9_-]{11}$/.test(t.id));
+        if(!tracks.length) return;
+        customStations.push({id:"custom-"+Date.now()+"-"+added,name:String(s.name),desc:String(s.desc||""),slogan:String(s.slogan||("Você está ouvindo "+s.name+", na Omarchy Radio.")),color:s.color||COLORS[0],tracks,custom:true}); added++;
+      });
+      if(Array.isArray(data.favorites)) favorites=data.favorites.filter(t=>t&&t.id);
+      store.set("omarchy:custom",customStations); store.set("omarchy:favs",favorites);
+      renderGrid(); renderSidebar(); toast(added?("Importadas "+added+" rádio(s)"):"Nada válido no arquivo");
+    }catch(err){ toast("Arquivo inválido"); }
+  });
+});
+/* controles do player */
+$("#c-play").onclick=togglePlay;
+$("#c-next").onclick=()=>nextTrack(true);
+$("#c-prev").onclick=prevTrack;
+$("#c-retry").onclick=()=>{ if(!current||!currentStation) return; delete badIds[current.id]; store.set("omarchy:badids",badIds); log("tentando de novo: "+current.title); playTrack(current,currentStation); };
+$("#c-fav").onclick=()=>{
+  if(!current) return;
+  const i=favorites.findIndex(f=>f.id===current.id);
+  if(i>=0){ favorites.splice(i,1); toast("Removida das favoritas"); }
+  else { favorites.unshift({artist:current.artist,title:current.title,id:current.id}); toast("♥ favoritada: "+current.title); }
+  store.set("omarchy:favs",favorites); updatePlayerUI(); renderStats();
+};
+$("#c-ban").onclick=()=>{
+  if(!current||!currentStation) return;
+  (banned[currentStation.id]=banned[currentStation.id]||[]).push(current.id);
+  store.set("omarchy:banned",banned);
+  queue=queue.filter(t=>t.id!==current.id);
+  toast("⊘ não toca mais nesta rádio: "+current.title); log("faixa bloqueada pelo usuário: "+current.title,"warn");
+  nextTrack(true);
+};
+$("#c-vinheta").onclick=e=>{ settings.vinheta=!settings.vinheta; e.currentTarget.classList.toggle("on",settings.vinheta); store.set("omarchy:settings",settings); toast("Vinhetas "+(settings.vinheta?"ligadas":"desligadas")); if(!settings.vinheta&&"speechSynthesis" in window) speechSynthesis.cancel(); };
+$("#btn-reshuffle").onclick=()=>{ queue=shuffled(queue); renderQueue(); toast("Fila re-embaralhada"); };
+$("#sleep").addEventListener("change",e=>{
+  const min=Number(e.target.value);
+  if(!min){ sleepDeadline=0; $("#sleep-left").textContent=""; return; }
+  sleepDeadline=Date.now()+min*60000; toast("⏲ rádio desliga em "+min+" min");
+});
+$("#vol").value=settings.vol;
+$("#vol").addEventListener("input",e=>{ settings.vol=Number(e.target.value); store.set("omarchy:settings",settings); if(ytReady&&yt) try{yt.setVolume(settings.vol)}catch(err){} audioEl.volume=settings.vol/100; });
+$("#search").addEventListener("input",e=>{ closeDetail(); renderGrid(e.target.value); });
+document.addEventListener("keydown",e=>{
+  const typing=/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+  if(e.key==="/"&&!typing){ e.preventDefault(); $("#search").focus(); return; }
+  if(typing) return;
+  if(e.code==="Space"){ e.preventDefault(); togglePlay(); }
+  else if(e.key==="n") nextTrack(true);
+  else if(e.key==="p") prevTrack();
+  else if(e.key==="f") $("#c-fav").click();
+  else if(e.key==="ArrowRight") seekBy(10);
+  else if(e.key==="ArrowLeft") seekBy(-10);
+  else if(e.key==="m"){ settings.vol=settings.vol?0:80; $("#vol").value=settings.vol; if(ytReady&&yt) try{yt.setVolume(settings.vol)}catch(err){} audioEl.volume=settings.vol/100; }
+});
+/* ===== boot ===== */
+if("speechSynthesis" in window){ speechSynthesis.getVoices(); if(speechSynthesis.onvoiceschanged!==undefined) speechSynthesis.onvoiceschanged=()=>speechSynthesis.getVoices(); }
+$("#c-vinheta").classList.toggle("on",!!settings.vinheta);
+audioEl.volume=settings.vol/100;
+renderGrid(); renderSidebar(); renderQueue(); renderHistory(); renderStats();
+log("omarchy-radio iniciado. "+allStations().length+" rádios, "+allStations().reduce((a,s)=>a+s.tracks.length,0)+" faixas.","ok");
+log(settings.backend?("fallback yt-dlp ativo: "+settings.backend):"cadeia de fallback: youtube → fonte alternativa → outra versão → próxima faixa","warn");
+if(_qs.get("station")){ const s=stationById(_qs.get("station")); if(s) openDetail(s.id); }
+if(location.hash.startsWith("#import=")){
+  try{
+    const data=JSON.parse(decodeURIComponent(escape(atob(location.hash.slice(8)))));
+    if(data&&data.name&&Array.isArray(data.tracks)&&data.tracks.length){
+      data.id="custom-"+Date.now(); data.custom=true;
+      if(!customStations.some(s=>s.name===data.name)){ customStations.push(data); store.set("omarchy:custom",customStations); renderGrid(); renderSidebar(); }
+      openDetail(data.id); toast("Rádio importada pelo link: "+data.name);
+    }
+  }catch(e){ log("link de importação inválido","err"); }
+}
+if("serviceWorker" in navigator&&/^https?:$/.test(location.protocol)){ navigator.serviceWorker.register("sw.js").catch(()=>{}); }
+</script>
+</body>
+</html>
