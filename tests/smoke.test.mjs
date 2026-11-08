@@ -33,3 +33,13 @@ test("importacao de playlist e prefetch continuam presentes", () => {
   assert.ok(html.includes("function fetchPlaylistTracks"), "fetchPlaylistTracks presente");
   assert.ok(html.includes("function startVinhetaTransition"), "vinheta com fade presente");
 });
+
+test("busca no youtube inteiro com acoes de tocar/fila/radio", () => {
+  assert.ok(html.includes("function searchYoutube"), "searchYoutube presente");
+  assert.ok(html.includes('id="yt-results"'), "area de resultados do youtube");
+  assert.ok(html.includes("function playNow"), "tocar agora presente");
+  assert.ok(html.includes("function queueAdd"), "adicionar a fila presente");
+  assert.ok(html.includes("function openAddToStation"), "adicionar a radio presente");
+  assert.ok(html.includes("function matchTitle"), "matchTitle (evita musica errada) presente");
+  assert.ok(html.includes("function isGenericTitle"), "isGenericTitle presente");
+});
