@@ -31,6 +31,18 @@ fonte sem comercial — da segunda faixa em diante é instantâneo e sem ads:
 Desligando o **SEM ADS**, a ordem inverte: YouTube primeiro (começa na hora,
 com comercial ocasional) e o resto vira fallback de falha.
 
+As **duas próximas** faixas ficam sempre preparadas — pular de faixa (uma ou
+duas vezes seguidas) começa em ~1s. A **vinheta** (a cada 3 músicas, ajustável)
+entra nos últimos 6s da faixa atual com fade-out da música, a voz por cima do
+rabo já baixo, e a próxima já carregada durante a vinheta.
+
+## Importar playlist do YouTube
+
+- **No site:** botão **⇓ importar playlist do YouTube** (ou em + nova rádio)
+  → cole o link da playlist pública/não-listada → **carregar** → salvar.
+  Até 300 faixas viram a rádio. Também vale colar o link direto e salvar.
+- **No terminal:** `radio playlist <link-da-playlist>` toca em shuffle.
+
 Ferramentas: ♥ favoritas (vira uma rádio), histórico, ⏲ sleep timer,
 ⊘ bloquear faixa na rádio, ↻ tentar de novo, compartilhar rádio por link
 (quem abre importa a rádio), botões de mídia do teclado/fone, estatísticas

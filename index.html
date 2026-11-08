@@ -203,6 +203,7 @@ input[type=range]{accent-color:var(--mauve);width:90px}
     <div class="navlabel"># suas rádios</div>
     <div id="station-list"></div>
     <button id="btn-new">+ nova rádio</button>
+    <button id="btn-import" class="navitem" style="justify-content:center;border:1px solid var(--surface2);margin-top:6px">⇓ importar playlist do YouTube</button>
     <div class="sidefoot">
       <b id="stat-line">0 plays · 0 min ouvidos</b><br><br>
       <code>espaço</code> play/pause · <code>n</code> próxima<br>
@@ -295,6 +296,12 @@ input[type=range]{accent-color:var(--mauve);width:90px}
   <div class="sheet">
     <h3 id="ms-title">Nova rádio</h3>
     <p class="hint">Cole um link do YouTube por linha. Formato: <b>Artista - Título | link</b> — ou só o link.</p>
+    <label>Ou importe uma playlist inteira do YouTube</label>
+    <div style="display:flex;gap:8px">
+      <input id="f-playlist" placeholder="cole o link da playlist (youtube.com/playlist?list=...)">
+      <button class="btn" id="f-loadplaylist" type="button" style="white-space:nowrap">⇓ carregar</button>
+    </div>
+    <p class="hint" id="f-playlist-status" style="margin:8px 0 0">A playlist precisa ser pública ou não-listada. Todas as faixas dela viram a rádio.</p>
     <label>Nome da rádio</label><input id="f-name" placeholder="ex: Jonas Brothers">
     <label>Descrição</label><input id="f-desc" placeholder="ex: Discografia em shuffle infinito">
     <label>Texto da vinheta (falado entre as músicas)</label><input id="f-slogan" placeholder="ex: Você está ouvindo Jonas Brothers Radio">
@@ -413,6 +420,7 @@ function markBad(id){ badIds[id]=Date.now(); store.set("omarchy:badids",badIds);
 let yt=null, ytReady=false, currentStation=null, queue=[], historyStack=[], current=null;
 let source="none", playing=false, sinceVinheta=0, detailId=null, editingId=null, selectedColor=COLORS[0];
 let playSeq=0, watchdog=null, audioWatchdog=null, endedGuard=false, lastNavAt=0, sleepTimer=null, sleepDeadline=0;
+let vinhetaTransition=null;
 const audioEl=$("#fallback-audio");
 function log(msg,cls){
   const el=$("#log"); if(!el) return;
@@ -444,7 +452,7 @@ function onYtState(e){
   if(!current) return;
   if(e.data===YT.PlayerState.PLAYING){ clearTimeout(watchdog); source="youtube"; markPlaying(); }
   else if(e.data===YT.PlayerState.PAUSED){ playing=false; updatePlayerUI(); }
-  else if(e.data===YT.PlayerState.ENDED){ if(endedGuard) return; endedGuard=true; log("faixa terminou"); setTimeout(()=>nextTrack(),150); }
+  else if(e.data===YT.PlayerState.ENDED){ if(vinhetaTransition){ vinhetaTransition.songEnded=true; tryFinishVinheta(); return; } if(endedGuard) return; endedGuard=true; log("faixa terminou"); setTimeout(()=>nextTrack(),150); }
 }
 let ytFailCb=null;
 function onYtError(e){
@@ -493,32 +501,36 @@ const waitMs=ms=>new Promise(r=>setTimeout(()=>r(null),ms));
 async function resolveAdFreeUrl(track){
   if(settings.backend){
     const url=settings.backend.replace(/\/$/,"")+"/stream/"+encodeURIComponent(track.id);
-    /* esquenta a extracao no backend (ele cacheia por 20 min) sem baixar a musica */
+    /* esquenta a extracao no backend em segundo plano (ele cacheia por 20 min);
+       a URL ja e valida na hora, nao precisa esperar */
     try{
-      const c=new AbortController(); const t=setTimeout(()=>c.abort(),15000);
-      const r=await fetch(url,{headers:{Range:"bytes=0-1"},signal:c.signal});
-      clearTimeout(t);
-      try{ if(r.body) await r.body.cancel(); }catch(e){}
-    }catch(e){ /* se falhar, a tentativa real acontece na hora da faixa */ }
+      const c=new AbortController(); setTimeout(()=>c.abort(),15000);
+      fetch(url,{headers:{Range:"bytes=0-1"},signal:c.signal}).then(r=>{ try{ if(r.body) r.body.cancel(); }catch(e){} }).catch(()=>{});
+    }catch(e){}
     return {kind:"ytdlp",url};
   }
   const url=await getAltAudio(track.id).catch(()=>null);
   return url?{kind:"alt",url}:null;
 }
-function prefetchNext(){
-  if(!settings.adfree||!currentStation) return;
-  const nxt=queue[0]; if(!nxt||prefetchCache.has(nxt.id)) return;
+function ensurePrefetch(track){
+  if(prefetchCache.has(track.id)) return prefetchCache.get(track.id);
   const entry={url:null,kind:null,promise:null};
-  entry.promise=resolveAdFreeUrl(nxt).then(res=>{
+  entry.promise=resolveAdFreeUrl(track).then(res=>{
     if(res){
       entry.url=res.url; entry.kind=res.kind;
       try{ const pa=$("#prefetch-audio"); if(pa&&pa.src!==res.url){ pa.src=res.url; pa.load(); } }catch(e){}
-      log("próxima já preparada sem comerciais: "+nxt.title,"ok");
+      log("faixa preparada sem comerciais: "+track.title,"ok");
     }
     return res;
   }).catch(()=>null);
-  prefetchCache.set(nxt.id,entry);
-  while(prefetchCache.size>4){ const k=prefetchCache.keys().next().value; if(k===nxt.id) break; prefetchCache.delete(k); }
+  prefetchCache.set(track.id,entry);
+  while(prefetchCache.size>5){ const k=prefetchCache.keys().next().value; if(k===track.id) break; prefetchCache.delete(k); }
+  return entry;
+}
+function prefetchNext(){
+  if(!settings.adfree||!currentStation) return;
+  /* prepara as DUAS proximas: pular duas vezes seguidas tambem comeca na hora */
+  queue.slice(0,2).forEach(t=>ensurePrefetch(t));
 }
 function playPrefetched(seq,track,entry){
   source=entry.kind; updatePlayerUI();
@@ -562,6 +574,7 @@ function markPlaying(){
 /* ===== reprodução com cadeia de fallback (nunca trava) ===== */
 function playTrack(track,station){
   const seq=++playSeq;
+  cancelVinhetaTransition();
   stopAllSources(); ytFailCb=null;
   current={artist:track.artist,title:track.title,id:track.id,stationId:station.id,stationName:station.name,_seq:seq,_counted:false,_replaced:false,_fallbackStarted:false,_failedId:track.id};
   source="loading"; playing=false; updatePlayerUI(); renderQueue(); renderGrid(); renderSidebar();
@@ -577,7 +590,7 @@ function playTrack(track,station){
 }
 let audioFailCb=null;
 audioEl.addEventListener("error",()=>{ if(audioFailCb){ const cb=audioFailCb; audioFailCb=null; cb(); } });
-audioEl.addEventListener("ended",()=>{ if(source==="ytdlp"||source==="alt"){ if(endedGuard) return; endedGuard=true; log("faixa terminou"); setTimeout(()=>nextTrack(),150); } });
+audioEl.addEventListener("ended",()=>{ if(source==="ytdlp"||source==="alt"){ if(vinhetaTransition){ vinhetaTransition.songEnded=true; tryFinishVinheta(); return; } if(endedGuard) return; endedGuard=true; log("faixa terminou"); setTimeout(()=>nextTrack(),150); } });
 audioEl.addEventListener("playing",()=>{ if(source==="ytdlp"||source==="alt"){ clearTimeout(audioWatchdog); markPlaying(); } });
 audioEl.addEventListener("pause",()=>{ if(source==="ytdlp"||source==="alt"){ playing=false; updatePlayerUI(); } });
 function playAudioUrl(url,seq,label,onFail){
@@ -655,29 +668,64 @@ async function getAltInstances(){
   }catch(e){ _altInstances=hardcoded; }
   return _altInstances;
 }
+function raceInstances(fn){
+  return getAltInstances().then(instances=>new Promise(resolve=>{
+    let pending=instances.length, done=false;
+    if(!pending){ resolve(null); return; }
+    instances.forEach(inst=>{
+      Promise.resolve().then(()=>fn(inst)).then(v=>{
+        if(v&&!done){ done=true; resolve(v); }
+        else if(--pending===0&&!done) resolve(null);
+      }).catch(()=>{ if(--pending===0&&!done) resolve(null); });
+    });
+  }));
+}
 async function getAltAudio(id){
-  const instances=await getAltInstances();
-  for(const inst of instances){
-    try{
-      const r=await fetchTimeout(inst+"/api/v1/videos/"+encodeURIComponent(id)+"?local=true",6000);
-      if(!r.ok) continue;
-      const data=await r.json();
-      const fmts=(data.adaptiveFormats||[]).filter(f=>(f.type||"").includes("audio")).sort((a,b)=>(b.bitrate||0)-(a.bitrate||0));
-      if(fmts.length&&fmts[0].url) return fmts[0].url;
-    }catch(e){ /* tenta a proxima instancia */ }
-  }
-  return null;
+  return raceInstances(async inst=>{
+    const r=await fetchTimeout(inst+"/api/v1/videos/"+encodeURIComponent(id)+"?local=true",5000);
+    if(!r.ok) return null;
+    const data=await r.json();
+    const fmts=(data.adaptiveFormats||[]).filter(f=>(f.type||"").includes("audio")).sort((a,b)=>(b.bitrate||0)-(a.bitrate||0));
+    return (fmts.length&&fmts[0].url)?fmts[0].url:null;
+  });
 }
 async function searchAltTrack(track){
-  const instances=await getAltInstances();
   const q=encodeURIComponent(track.artist+" "+track.title+" official audio");
-  for(const inst of instances){
-    try{
-      const r=await fetchTimeout(inst+"/api/v1/search?q="+q+"&type=video",6000);
-      if(!r.ok) continue;
-      const data=await r.json();
-      for(const v of data){ if(v.videoId&&v.videoId!==track.id&&(v.lengthSeconds||0)>=55&&(v.lengthSeconds||0)<=620) return v.videoId; }
-    }catch(e){ /* proxima */ }
+  return raceInstances(async inst=>{
+    const r=await fetchTimeout(inst+"/api/v1/search?q="+q+"&type=video",5000);
+    if(!r.ok) return null;
+    const data=await r.json();
+    for(const v of data){ if(v.videoId&&v.videoId!==track.id&&(v.lengthSeconds||0)>=55&&(v.lengthSeconds||0)<=620) return v.videoId; }
+    return null;
+  });
+}
+/* ===== importar playlist do YouTube so com o link ===== */
+function extractPlaylistId(input){
+  if(!input) return null; input=String(input).trim();
+  const m=input.match(/[?&]list=([A-Za-z0-9_-]{10,})/);
+  if(m) return m[1];
+  if(/^(PL|UU|OL|RD|FL|TL)[A-Za-z0-9_-]{8,}$/.test(input)) return input;
+  return null;
+}
+function parsePlaylistVideo(v){
+  let title=String(v.title||"").trim(), artist=String(v.author||"Artista").trim();
+  title=title.replace(/\[(.*?)\]/g,"").replace(/\((official|oficial|music|lyric|audio|video|hd|hq).*?\)/gi,"").replace(/\s+/g," ").trim();
+  if(title.includes(" - ")){ const p=title.split(" - "); artist=p[0].trim(); title=p.slice(1).join(" - ").trim(); }
+  return {artist:artist.slice(0,60)||"Artista", title:title.slice(0,90)||"Faixa", id:v.videoId};
+}
+async function fetchPlaylistTracks(playlistId){
+  const viaAlt=await raceInstances(async inst=>{
+    const r=await fetchTimeout(inst+"/api/v1/playlists/"+encodeURIComponent(playlistId),9000);
+    if(!r.ok) return null;
+    const data=await r.json();
+    const videos=(data.videos||[]).filter(v=>v.videoId&&/^[A-Za-z0-9_-]{11}$/.test(v.videoId)&&(!v.lengthSeconds||(v.lengthSeconds>=40&&v.lengthSeconds<=1200)));
+    if(!videos.length) return null;
+    return {title:data.title||"", tracks:videos.map(parsePlaylistVideo)};
+  }).catch(()=>null);
+  if(viaAlt) return viaAlt;
+  if(settings.backend){
+    const r=await fetchTimeout(settings.backend.replace(/\/$/,"")+"/playlist/"+encodeURIComponent(playlistId),30000);
+    if(r.ok){ const data=await r.json(); if(data.tracks&&data.tracks.length) return data; }
   }
   return null;
 }
@@ -729,19 +777,88 @@ function maybeVinheta(done){
     }catch(e){ setTimeout(finish,1200); }
   } else setTimeout(finish,1600);
 }
+function advanceNext(){
+  const usable=usableTracks(currentStation);
+  if(!queue.length) queue=shuffled(usable);
+  queue=queue.filter(t=>!isBad(t.id)&&!isBanned(currentStation.id,t.id));
+  if(!queue.length){ playing=false; source="none"; updatePlayerUI(); toast("Sem faixas disponíveis nesta rádio agora"); log("fila vazia — todas falharam ou foram bloqueadas","err"); return; }
+  const nx=queue.shift();
+  playTrack(nx,currentStation);
+}
 function nextTrack(skipVinheta){
   if(!currentStation) return;
   const now=Date.now(); if(now-lastNavAt<250) return; lastNavAt=now;
+  cancelVinhetaTransition();
   if(current) historyStack.push({artist:current.artist,title:current.title,id:current._origId||current.id});
-  const doNext=()=>{
-    const usable=usableTracks(currentStation);
-    if(!queue.length) queue=shuffled(usable);
-    queue=queue.filter(t=>!isBad(t.id)&&!isBanned(currentStation.id,t.id));
-    if(!queue.length){ playing=false; source="none"; updatePlayerUI(); toast("Sem faixas disponíveis nesta rádio agora"); log("fila vazia — todas falharam ou foram bloqueadas","err"); return; }
-    const nx=queue.shift();
-    playTrack(nx,currentStation);
-  };
-  if(skipVinheta) doNext(); else maybeVinheta(doNext);
+  if(skipVinheta) advanceNext(); else maybeVinheta(advanceNext);
+}
+/* ===== vinheta com fade: entra no rabo da musica, proxima ja carregando ===== */
+function setOutputVolume(v){
+  v=Math.max(0,Math.min(100,v));
+  try{ if(ytReady&&yt) yt.setVolume(Math.round(v)); }catch(e){}
+  try{ audioEl.volume=v/100; }catch(e){}
+}
+function getPos(){
+  let cur=0,dur=0;
+  if(current&&(source==="ytdlp"||source==="alt")){ cur=audioEl.currentTime||0; dur=audioEl.duration||0; }
+  else if(current&&ytReady&&yt&&yt.getCurrentTime){ try{ cur=yt.getCurrentTime()||0; dur=yt.getDuration()||0; }catch(e){} }
+  return {cur,dur};
+}
+function vinhetaDue(){
+  return !!(settings.vinheta&&currentStation&&current&&(sinceVinheta+1)>=Number(settings.every||3));
+}
+function cancelVinhetaTransition(){
+  if(!vinhetaTransition) return;
+  clearInterval(vinhetaTransition.fadeTimer); clearTimeout(vinhetaTransition.speechTimer); clearTimeout(vinhetaTransition.maxTimer);
+  vinhetaTransition=null;
+  $("#vinheta").classList.remove("show");
+  if("speechSynthesis" in window){ try{speechSynthesis.cancel()}catch(e){} }
+  setOutputVolume(settings.vol);
+}
+function startVinhetaTransition(){
+  if(vinhetaTransition||!current||!currentStation) return;
+  sinceVinheta=0;
+  const slogan=currentStation.slogan||("Você está ouvindo "+currentStation.name+", na Omarchy Radio.");
+  const tr=vinhetaTransition={seq:playSeq,songEnded:false,speechDone:false,fadeTimer:null,speechTimer:null,maxTimer:null};
+  const box=$("#vinheta");
+  box.innerHTML=`<b>♪ VINHETA ♪</b><br>${esc(slogan)}`; box.classList.add("show");
+  log("vinheta entrando com fade: "+slogan,"warn"); sting();
+  prefetchNext(); /* proxima ja carrega durante a vinheta */
+  /* fade-out da musica atual em ~3s */
+  const startVol=settings.vol, t0=Date.now();
+  tr.fadeTimer=setInterval(()=>{
+    const k=Math.min(1,(Date.now()-t0)/3000);
+    setOutputVolume(startVol*(1-k));
+    if(k>=1) clearInterval(tr.fadeTimer);
+  },100);
+  /* voz entra por cima do rabo ja baixo (fade-in da vinheta) */
+  tr.speechTimer=setTimeout(()=>{
+    if(vinhetaTransition!==tr) return;
+    if(settings.voice==="on"&&"speechSynthesis" in window){
+      try{
+        speechSynthesis.cancel();
+        const u=new SpeechSynthesisUtterance(slogan); u.lang="pt-BR"; u.rate=1.02;
+        const v=speechSynthesis.getVoices().find(v=>v.lang&&v.lang.toLowerCase().startsWith("pt"));
+        if(v) u.voice=v;
+        const done=()=>{ if(vinhetaTransition!==tr) return; tr.speechDone=true; tryFinishVinheta(); };
+        u.onend=done; u.onerror=done;
+        speechSynthesis.speak(u);
+        setTimeout(done,Math.min(9000,2600+slogan.length*85));
+      }catch(e){ tr.speechDone=true; tryFinishVinheta(); }
+    } else { tr.speechDone=true; tryFinishVinheta(); }
+  },1400);
+  tr.maxTimer=setTimeout(()=>{ if(vinhetaTransition!==tr) return; tr.songEnded=true; tr.speechDone=true; tryFinishVinheta(); },14000);
+}
+function tryFinishVinheta(){
+  const tr=vinhetaTransition;
+  if(!tr||!tr.speechDone||!tr.songEnded) return;
+  clearInterval(tr.fadeTimer); clearTimeout(tr.speechTimer); clearTimeout(tr.maxTimer);
+  vinhetaTransition=null;
+  $("#vinheta").classList.remove("show");
+  if(current) historyStack.push({artist:current.artist,title:current.title,id:current.id});
+  setOutputVolume(settings.vol);
+  log("vinheta acabou — entrou a próxima (já carregada)");
+  advanceNext();
 }
 function prevTrack(){
   const prev=historyStack.pop();
@@ -865,11 +982,12 @@ function closeDetail(){ detailId=null; $("#detail").classList.remove("open"); $(
 /* progresso + tempo ouvido + sleep timer */
 let _secTick=0;
 setInterval(()=>{
-  let cur=0,dur=0;
-  if(current&&(source==="ytdlp"||source==="alt")){ cur=audioEl.currentTime||0; dur=audioEl.duration||0; }
-  else if(current&&ytReady&&yt&&yt.getCurrentTime){ try{ cur=yt.getCurrentTime()||0; dur=yt.getDuration()||0; }catch(e){} }
+  const pos=getPos(); const cur=pos.cur, dur=pos.dur;
   $("#t-cur").textContent=fmt(cur); $("#t-dur").textContent=fmt(dur);
   $("#fill").style.width=dur?(cur/dur*100)+"%":"0%";
+  /* vinheta com fade: entra nos ultimos 6s da faixa */
+  if(playing&&!vinhetaTransition&&vinhetaDue()&&dur>40&&(dur-cur)<=6&&(dur-cur)>0) startVinhetaTransition();
+  if(vinhetaTransition&&dur&&(dur-cur)<=0.4){ vinhetaTransition.songEnded=true; tryFinishVinheta(); }
   if(playing){ stats.seconds+=.5; if(++_secTick>=30){ _secTick=0; store.set("omarchy:stats",stats); renderStats(); } }
   if(sleepDeadline){
     const left=sleepDeadline-Date.now();
@@ -899,12 +1017,46 @@ function openStationForm(station){
   $("#f-name").value=station?station.name:""; $("#f-desc").value=station?(station.desc||""):"";
   $("#f-slogan").value=station?(station.slogan||""):"";
   $("#f-tracks").value=station?station.tracks.map(t=>`${t.artist} - ${t.title} | https://www.youtube.com/watch?v=${t.id}`).join("\n"):"";
+  $("#f-playlist").value=""; $("#f-playlist-status").textContent="A playlist precisa ser pública ou não-listada. Todas as faixas dela viram a rádio.";
   openModal("#modal-station");
 }
-$("#f-save").onclick=()=>{
+$("#f-loadplaylist").onclick=async()=>{
+  const pid=extractPlaylistId($("#f-playlist").value);
+  const status=$("#f-playlist-status");
+  if(!pid){ status.textContent="Link inválido — cole a URL completa da playlist do YouTube."; return; }
+  const btn=$("#f-loadplaylist"); btn.disabled=true; btn.textContent="carregando...";
+  status.textContent="Buscando as faixas da playlist...";
+  try{
+    const data=await fetchPlaylistTracks(pid);
+    if(!data||!data.tracks.length){ status.textContent="Não consegui ler essa playlist. Confira se ela é pública/não-listada e tente de novo."; return; }
+    const seen=new Set(); const tracks=data.tracks.filter(t=>!seen.has(t.id)&&seen.add(t.id)).slice(0,300);
+    if(!$("#f-name").value.trim()&&data.title) $("#f-name").value=data.title.replace(/\s*-\s*YouTube\s*$/i,"").slice(0,80);
+    $("#f-tracks").value=tracks.map(t=>`${t.artist} - ${t.title} | https://www.youtube.com/watch?v=${t.id}`).join("\n");
+    status.textContent=`✓ ${tracks.length} faixas carregadas da playlist${data.tracks.length>tracks.length?" (limite de 300)":""}. Confira e clique em salvar rádio.`;
+    log("playlist importada: "+tracks.length+" faixas","ok");
+  }catch(e){ status.textContent="Erro ao carregar a playlist. Tente de novo em alguns segundos."; }
+  finally{ btn.disabled=false; btn.textContent="⇓ carregar"; }
+};
+$("#btn-import").onclick=()=>{ openStationForm(null); setTimeout(()=>$("#f-playlist").focus(),80); };
+$("#f-save").onclick=async()=>{
   const name=$("#f-name").value.trim(); if(!name){ toast("Dê um nome pra rádio"); return; }
-  const tracks=$("#f-tracks").value.split("\n").map((l,i)=>parseTrackLine(l,i)).filter(Boolean);
-  if(!tracks.length){ toast("Nenhuma faixa válida — cole links do YouTube"); return; }
+  let tracks=[];
+  /* link de playlist colado (no campo de playlist ou nas faixas) vira a radio inteira */
+  const pids=new Set();
+  const pidField=extractPlaylistId($("#f-playlist").value); if(pidField) pids.add(pidField);
+  const lines=$("#f-tracks").value.split("\n").map(l=>l.trim()).filter(Boolean);
+  lines.forEach(l=>{ const p=extractPlaylistId(l); if(p&&(l.includes("playlist")||!l.includes("|"))) pids.add(p); });
+  const preParsed=lines.filter(l=>!extractPlaylistId(l)||l.includes("|")).map((l,i)=>parseTrackLine(l,i)).filter(Boolean);
+  if(pids.size&&preParsed.length<5){
+    toast("Carregando playlist(s)...");
+    for(const pid of pids){
+      const data=await fetchPlaylistTracks(pid).catch(()=>null);
+      if(data&&data.tracks) tracks=tracks.concat(data.tracks);
+    }
+  }
+  tracks=tracks.concat(preParsed);
+  const seen=new Set(); tracks=tracks.filter(t=>t&&t.id&&!seen.has(t.id)&&seen.add(t.id)).slice(0,300);
+  if(!tracks.length){ toast("Nenhuma faixa válida — cole links do YouTube ou uma playlist pública"); return; }
   const data={name,desc:$("#f-desc").value.trim(),slogan:$("#f-slogan").value.trim()||("Você está ouvindo "+name+", na Omarchy Radio."),color:selectedColor,tracks,custom:true};
   if(editingId&&customStations.some(s=>s.id===editingId)){ Object.assign(customStations.find(s=>s.id===editingId),data); log("rádio editada: "+name,"ok"); }
   else { data.id="custom-"+Date.now(); customStations.push(data); editingId=data.id; log("rádio criada: "+name+" ("+tracks.length+" faixas)","ok"); }

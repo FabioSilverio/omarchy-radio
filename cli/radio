@@ -26,6 +26,7 @@ station_key() {
 }
 station_name() {
   case "$1" in
+    playlist) cat "$STATE/station-name" 2>/dev/null || echo "Playlist do YouTube" ;;
     jonas) echo "Jonas Brothers Radio" ;;
     tiktok) echo "Hits no TikTok Hoje" ;;
     hits2010) echo "Hits 2010" ;;
@@ -34,6 +35,7 @@ station_name() {
 }
 station_slogan() {
   case "$1" in
+    playlist) echo "Você está ouvindo sua playlist do YouTube, na Omarchy Radio." ;;
     jonas) echo "Você está ouvindo Jonas Brothers Radio, na Omarchy Radio." ;;
     tiktok) echo "Você está ouvindo Hits no TikTok Hoje, na Omarchy Radio." ;;
     hits2010) echo "Você está ouvindo Hits 2010, na Omarchy Radio." ;;
@@ -148,8 +150,37 @@ loop_player() {
       if [ $count -gt 1 ] && [ $(( (count - 1) % 3 )) -eq 0 ]; then vinheta_falada "$(station_slogan "$station")"; fi
       play_one "$id" "$artist" "$title" || echo "  faixa indisponível, pulando: $artist — $title" >&2
     done
-    make_queue "$station" > "$QUEUE"   # acabou a fila: embaralha tudo de novo, radio infinita
+    if [ "$station" = playlist ]; then shuf "$STATE/playlist.tsv" > "$QUEUE"; else make_queue "$station" > "$QUEUE"; fi
   done
+}
+cmd_playlist() {
+  local url="${1:-}" pid
+  pid=$(printf '%s' "$url" | grep -oE 'list=[A-Za-z0-9_-]+' | cut -d= -f2)
+  [ -n "$pid" ] || { echo "uso: radio playlist <link-da-playlist-do-youtube>"; exit 1; }
+  command -v mpv >/dev/null && command -v yt-dlp >/dev/null || { echo "Faltam mpv/yt-dlp: sudo pacman -S mpv yt-dlp" >&2; exit 1; }
+  echo "Carregando playlist..."
+  yt-dlp --flat-playlist -J "https://www.youtube.com/playlist?list=$pid" 2>/dev/null | python3 -c '
+import json, sys, random
+d = json.load(sys.stdin)
+rows, seen = [], set()
+for e in d.get("entries") or []:
+    vid = e.get("id"); raw = (e.get("title") or "").strip()
+    if not vid or vid in seen: continue
+    seen.add(vid)
+    if " - " in raw: a, t = raw.split(" - ", 1)
+    else: a, t = (e.get("channel") or "Artista"), raw
+    rows.append((vid, a.strip(), t.strip()))
+random.shuffle(rows)
+for vid, a, t in rows: print(f"{vid}\t{a}\t{t}")
+' > "$STATE/playlist.tsv"
+  [ -s "$STATE/playlist.tsv" ] || { echo "Não consegui ler a playlist (ela é pública?)"; exit 1; }
+  yt-dlp --flat-playlist --print "%(playlist_title)s" "https://www.youtube.com/playlist?list=$pid" 2>/dev/null | head -1 > "$STATE/station-name"
+  cmd_stop >/dev/null 2>&1 || true
+  cp "$STATE/playlist.tsv" "$QUEUE"
+  echo playlist > "$STATION_FILE"
+  setsid -f "$0" _loop playlist >>"$LOG" 2>&1
+  sleep 1
+  echo "No ar: $(station_name playlist) — $(wc -l < "$QUEUE") faixas em shuffle"
 }
 
 cmd_stop() {
@@ -205,6 +236,7 @@ omarchy-radio no terminal — as rádios de $SITE_URL
   radio pausa            pausa / continua
   radio vol <0-100>      volume
   radio stop             desliga a rádio
+  radio playlist <link>  toca uma playlist do YouTube em shuffle
   radio site             abre o site no navegador
   radio atualizar        atualiza o comando radio
 EOF
@@ -237,6 +269,7 @@ PY
   vol|volume)
     v="${2:-}"; case "$v" in ''|*[!0-9]*) echo "uso: radio vol 0-100";; *) echo "$v" > "$VOL_FILE"; mpv_ipc "{\"command\":[\"set_property\",\"volume\",$v]}" >/dev/null; echo "Volume: $v";; esac ;;
   stop|parar) cmd_stop ;;
+  playlist) shift; cmd_playlist "${1:-}" ;;
   site|abrir) xdg-open "$SITE_URL" >/dev/null 2>&1; echo "Abrindo $SITE_URL" ;;
   atualizar|update)
     tmp=$(mktemp); curl -fsSL "$RAW_RADIO" -o "$tmp" && install -m755 "$tmp" "$0" && rm -f "$tmp" && echo "Comando radio atualizado." || { rm -f "$tmp"; echo "Falha ao atualizar." >&2; exit 1; } ;;
