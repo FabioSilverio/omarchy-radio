@@ -246,6 +246,15 @@ cmd_start() {
     bridge_cmd "{\"cmd\":\"station\",\"station\":\"$key\"}"
     echo "No ar no site: $(station_name "$key")"
     echo "Controles: radio status | radio prox | radio pausa | radio stop"
+    local i st
+    for i in 1 2 3 4 5 6; do
+      st=$(bridge_state 2>/dev/null)
+      case "$st" in
+        *'"blocked": true'*) echo "⚠ o navegador bloqueou o som: clique uma vez no site (ou em ▶) para liberar."; break ;;
+        *'"playing": true'*) break ;;
+      esac
+      sleep 0.5
+    done
     return
   fi
   command -v mpv >/dev/null && command -v yt-dlp >/dev/null || { echo "Faltam mpv/yt-dlp: sudo pacman -S mpv yt-dlp" >&2; exit 1; }
@@ -257,6 +266,21 @@ cmd_start() {
   sleep 1
   echo "No ar: $(station_name "$key") — $(wc -l < "$QUEUE") faixas em shuffle"
   echo "Controles: radio status | radio prox | radio pausa | radio stop"
+}
+
+cmd_resume() {
+  if bridge_active; then
+    bridge_cmd '{"cmd":"play"}'
+    sleep 2
+    cmd_status
+    return
+  fi
+  if is_playing_loop; then
+    mpv_ipc '{"command":["set_property","pause",false]}' >/dev/null
+    cmd_status
+  else
+    echo "Nada tocando — escolha uma rádio: radio jonas"; return 1
+  fi
 }
 
 cmd_bridge() {
@@ -335,7 +359,7 @@ class Handler(BaseHTTPRequestHandler):
         data = self._read()
         if path == "/state":
             with _lock:
-                for k in ("playing", "title", "artist", "stationId", "stationName", "source", "pos", "dur", "vol"):
+                for k in ("playing", "blocked", "title", "artist", "stationId", "stationName", "source", "pos", "dur", "vol"):
                     if k in data:
                         _state[k] = data[k]
                 _state["ts"] = time.time()
@@ -372,7 +396,9 @@ s=json.load(sys.stdin)
 pos=float(s.get("pos") or 0); dur=float(s.get("dur") or 0)
 print("♪ %s  [%s]" % (s.get("title") or "?", s.get("stationName") or "site"))
 if dur>0:
-    print("  %d:%02d / %d:%02d%s · volume %s" % (int(pos)//60,int(pos)%60,int(dur)//60,int(dur)%60, " · pausado" if not s.get("playing") else "", s.get("vol","?")))'
+    print("  %d:%02d / %d:%02d%s · volume %s" % (int(pos)//60,int(pos)%60,int(dur)//60,int(dur)%60, " · pausado" if not s.get("playing") else "", s.get("vol","?")))
+if s.get("blocked"):
+    print("  ⚠ o navegador bloqueou o som — clique uma vez no site (ou em ▶)")'
     return
   fi
   if is_playing_loop; then
@@ -400,6 +426,7 @@ omarchy-radio no terminal — as rádios de $SITE_URL
   radio toca <busca>     toca a primeira música que bater com a busca
   radio busca <busca>    lista músicas que batem com a busca
   radio status           o que está tocando agora
+  radio play             retoma o que está tocando (site ou terminal)
   radio prox             próxima música
   radio pausa            pausa / continua
   radio vol <0-100>      volume
@@ -424,7 +451,9 @@ case "${1:-}" in
       cmd_start "${choice%% *}"
     else usage; fi ;;
   jonas|tiktok|2010|hits2010|tops|alltime) cmd_start "$1" ;;
-  tocar|toca|play) shift; cmd_start "${1:?uso: radio toca <estacao-ou-busca>}" ;;
+  tocar|toca) shift; cmd_start "${1:?uso: radio toca <estacao-ou-busca>}" ;;
+  play|retoma|continua|despausa)
+    if [ -n "${2:-}" ]; then shift; cmd_start "$1"; else cmd_resume; fi ;;
   busca|search)
     shift; fetch_data
     python3 - "$DATA_CACHE" "$*" <<'PY'

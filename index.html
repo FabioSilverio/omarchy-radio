@@ -150,6 +150,10 @@ input[type=range]{accent-color:var(--mauve);width:90px}
 .sheet table{width:100%;font-size:12px;color:var(--subtext);border-collapse:collapse}
 .sheet table td{padding:6px 4px;border-bottom:1px solid var(--surface)}
 #toast{position:fixed;left:50%;bottom:118px;transform:translateX(-50%);background:var(--surface);color:var(--text);padding:10px 16px;font-size:12px;display:none;z-index:60;border:1px solid var(--surface2);max-width:90vw;text-align:center}
+#autoplay-bar{position:fixed;left:50%;bottom:158px;transform:translateX(-50%);display:none;align-items:center;gap:14px;background:var(--yellow);color:var(--crust);padding:12px 16px 12px 18px;font-size:12px;font-weight:700;z-index:70;border:1px solid var(--crust);max-width:92vw;box-shadow:0 10px 34px rgba(0,0,0,.55)}
+#autoplay-bar.show{display:flex}
+#autoplay-bar button{background:var(--crust);color:var(--yellow);border:0;padding:9px 16px;font-family:inherit;font-weight:800;font-size:12px;cursor:pointer;letter-spacing:.02em}
+#autoplay-bar button:hover{background:var(--mantle);color:var(--yellow)}
 #yt-holder{position:fixed;left:0;bottom:0;width:4px;height:4px;overflow:hidden;opacity:.01;pointer-events:none;z-index:-1}
 #yt-holder iframe{width:4px;height:4px}
 @media(max-width:1000px){#app{grid-template-columns:210px 1fr}#queuecol{display:none}footer{grid-column:1/3}.controls{min-width:0}}
@@ -307,6 +311,7 @@ input[type=range]{accent-color:var(--mauve);width:90px}
 
 <div id="vinheta"></div>
 <div id="toast"></div>
+<div id="autoplay-bar"><span>O navegador bloqueou o som — libere com um clique (ou um comando no terminal).</span><button id="autoplay-btn">▶ ativar som</button></div>
 <div id="yt-holder"><div id="yt-player"></div></div>
 <audio id="fallback-audio" preload="auto"></audio>
 <audio id="prefetch-audio" preload="metadata"></audio>
@@ -505,8 +510,9 @@ function attemptYouTube(seq,videoId,failCb){
   }
   ytFailCb=()=>{ if(seq===playSeq) failCb(); };
   try{ yt.loadVideoById(videoId); yt.setVolume(settings.vol); }catch(e){ ytFailCb=null; failCb(); return; }
+  probePlayback(seq);
   clearTimeout(watchdog);
-  watchdog=setTimeout(()=>{ if(seq===playSeq&&source==="loading"){ ytFailCb=null; log("youtube demorou demais — tentando outra fonte","warn"); failCb(); } },12000);
+  watchdog=setTimeout(()=>{ if(seq===playSeq&&source==="loading"){ if(autoplayBlocked){ return; } ytFailCb=null; log("youtube demorou demais — tentando outra fonte","warn"); failCb(); } },12000);
 }
 async function attemptAltAudio(seq,track,onFail){
   const url=await getAltAudio(track.id).catch(()=>null);
@@ -604,9 +610,81 @@ function markPlaying(){
   if(playing) prefetchNext();
   updatePlayerUI(); renderQueue();
 }
+/* ===== autoplay: comando vindo do terminal nao conta como clique ===== */
+let autoplayBlocked=false, autoplayProbe=null, autoplayArmed=false, probeEpoch=0;
+function showAutoplayBar(){
+  autoplayBlocked=true;
+  const b=$("#autoplay-bar"); if(b) b.classList.add("show");
+  if(autoplayArmed) return;
+  autoplayArmed=true;
+  const unlock=()=>{
+    document.removeEventListener("pointerdown",unlock,true);
+    document.removeEventListener("keydown",unlock,true);
+    autoplayArmed=false; activateAudio();
+  };
+  document.addEventListener("pointerdown",unlock,true);
+  document.addEventListener("keydown",unlock,true);
+  log("navegador bloqueou o som — esperando um clique (ou o botão ▶ do site)","warn");
+}
+function hideAutoplayBar(){
+  autoplayBlocked=false;
+  const b=$("#autoplay-bar"); if(b) b.classList.remove("show");
+}
+function activateAudio(){
+  const wasBlocked=autoplayBlocked;
+  hideAutoplayBar();
+  try{ if(ytReady&&yt){ yt.setVolume(settings.vol); yt.unMute(); if(!playing&&source!=="ytdlp"&&source!=="alt") yt.playVideo(); } }catch(e){}
+  try{ if(source==="ytdlp"||source==="alt"){ audioEl.muted=false; if(!playing) audioEl.play().catch(()=>{}); } }catch(e){}
+  if(wasBlocked){ toast("Som liberado."); log("som liberado pelo clique do usuário","ok"); }
+}
+/* tenta tocar sem som (autoplay mudo é permitido) e religa o som em seguida */
+function probePlayback(seq,tries){
+  tries=tries||0;
+  const ep=probeEpoch;
+  clearTimeout(autoplayProbe);
+  autoplayProbe=setTimeout(()=>{
+    try{
+      if(ep!==probeEpoch) return;
+      if(seq&&seq!==playSeq) return;
+      if(playing||autoplayBlocked) return;
+      const st=(ytReady&&yt&&yt.getPlayerState)?yt.getPlayerState():null;
+      if(st===1||st===YT.PlayerState.PLAYING) return;
+      if(tries<4&&(st===3||st===YT.PlayerState.BUFFERING)){ probePlayback(seq,tries+1); return; }
+      const isAudio=source==="ytdlp"||source==="alt";
+      if(isAudio){
+        if(!audioEl.paused) return;
+        if(tries<4&&audioEl.readyState<3&&audioEl.src){ probePlayback(seq,tries+1); return; }
+        if(audioEl.src){
+          try{ audioEl.muted=true; const p=audioEl.play(); if(p&&p.catch) p.catch(()=>{}); }catch(e){}
+          setTimeout(()=>{
+            if(ep!==probeEpoch) return;
+            if(seq&&seq!==playSeq) return;
+            if(!audioEl.paused){ try{ audioEl.muted=false; }catch(e){} log("comecei sem som e liguei o áudio sem clique","ok"); }
+            else showAutoplayBar();
+          },700);
+          return;
+        }
+      }
+      if(ytReady&&yt){
+        try{ yt.mute(); yt.playVideo(); }catch(e){ showAutoplayBar(); return; }
+        setTimeout(()=>{
+          if(ep!==probeEpoch) return;
+          if(seq&&seq!==playSeq) return;
+          if(playing){
+            try{ yt.unMute(); }catch(e){}
+            setTimeout(()=>{ let m=false; try{ m=yt.isMuted(); }catch(e){} if(m||!playing) showAutoplayBar(); },450);
+          } else showAutoplayBar();
+        },800);
+        return;
+      }
+      showAutoplayBar();
+    }catch(e){ showAutoplayBar(); }
+  },tries?900:1000);
+}
 /* ===== reprodução com cadeia de fallback (nunca trava) ===== */
 function playTrack(track,station){
   const seq=++playSeq;
+  probeEpoch++;
   cancelVinhetaTransition();
   stopAllSources(); ytFailCb=null;
   current={artist:track.artist,title:track.title,id:track.id,stationId:station.id,stationName:station.name,_seq:seq,_counted:false,_replaced:false,_fallbackStarted:false,_failedId:track.id};
@@ -615,7 +693,7 @@ function playTrack(track,station){
   const trackObj={artist:track.artist,title:track.title,id:track.id};
   /* watchdog global: se a faixa não começar a tocar em 20s, pula sozinha (nunca trava) */
   clearTimeout(loadWatchdog);
-  loadWatchdog=setTimeout(()=>{ if(seq===playSeq&&!playing){ log("faixa não começou a tempo — pulando para a próxima","warn"); failTrack(seq,trackObj); } },20000);
+  loadWatchdog=setTimeout(()=>{ if(seq===playSeq&&!playing){ if(autoplayBlocked){ log("navegador bloqueou o som — faixa fica pausada esperando um clique","warn"); return; } log("faixa não começou a tempo — pulando para a próxima","warn"); failTrack(seq,trackObj); } },20000);
   if(settings.adfree&&fastStartPending){
     fastStartPending=false;
     log("1ª faixa via youtube (rápido) — as próximas já vão sendo preparadas sem comerciais");
@@ -634,11 +712,18 @@ function playAudioUrl(url,seq,label,onFail){
   const fail=()=>{ if(failed||seq!==playSeq) return; failed=true; audioFailCb=null; clearTimeout(audioWatchdog); onFail(); };
   audioFailCb=fail;
   clearTimeout(audioWatchdog);
-  audioWatchdog=setTimeout(()=>{ if(seq===playSeq && audioEl.currentTime<1 && audioEl.readyState<3){ log(label+" demorou demais — próxima fonte","warn"); fail(); } },15000);
+  audioWatchdog=setTimeout(()=>{ if(seq===playSeq && audioEl.currentTime<1 && audioEl.readyState<3){ if(autoplayBlocked) return; log(label+" demorou demais — próxima fonte","warn"); fail(); } },15000);
   try{
     audioEl.src=url; audioEl.volume=settings.vol/100;
     const p=audioEl.play();
-    if(p&&p.catch) p.catch(()=>{ log(label+" recusou tocar — próxima fonte","warn"); fail(); });
+    if(p&&p.catch) p.catch(err=>{
+      if(err&&(err.name==="NotAllowedError"||err.name==="SecurityError")){
+        /* não é falha da fonte: o navegador só não deixa tocar com som sem um clique */
+        clearTimeout(audioWatchdog); playing=false; updatePlayerUI(); showAutoplayBar(); return;
+      }
+      log(label+" recusou tocar — próxima fonte","warn"); fail();
+    });
+    probePlayback(seq);
   }catch(e){ fail(); }
 }
 async function tryFallbacks(seq,fromStage){
@@ -977,9 +1062,9 @@ function prevTrack(){
 }
 function togglePlay(){
   if(!current){ const s=allStations()[0]; if(s) playStation(s); return; }
-  if(source==="ytdlp"||source==="alt"){ if(playing) audioEl.pause(); else audioEl.play().catch(()=>{}); return; }
+  if(source==="ytdlp"||source==="alt"){ if(playing){ audioEl.pause(); probeEpoch++; } else audioEl.play().catch(err=>{ if(err&&err.name==="NotAllowedError") showAutoplayBar(); }); return; }
   if(!ytReady||!yt) return;
-  try{ const st=yt.getPlayerState(); if(st===YT.PlayerState.PLAYING) yt.pauseVideo(); else yt.playVideo(); }catch(e){}
+  try{ const st=yt.getPlayerState(); if(st===YT.PlayerState.PLAYING){ probeEpoch++; yt.pauseVideo(); } else yt.playVideo(); }catch(e){}
 }
 function seekBy(sec){
   if(source==="ytdlp"||source==="alt"){ audioEl.currentTime=Math.max(0,(audioEl.currentTime||0)+sec); return; }
@@ -1245,6 +1330,7 @@ $("#s-import").addEventListener("change",e=>{
 });
 /* controles do player */
 $("#c-play").onclick=togglePlay;
+const _autoplayBtn=$("#autoplay-btn"); if(_autoplayBtn) _autoplayBtn.onclick=activateAudio;
 $("#c-next").onclick=()=>nextTrack(true);
 $("#c-prev").onclick=prevTrack;
 $("#c-retry").onclick=()=>{ if(!current||!currentStation) return; delete badIds[current.id]; store.set("omarchy:badids",badIds); log("tentando de novo: "+current.title); playTrack(current,currentStation); };
@@ -1378,7 +1464,7 @@ function setBridgeUI(on){
 function postBridgeState(){
   if(!bridgeOn) return;
   const pos=getPos();
-  const body={playing:!!playing,title:current?current.title:"",artist:current?current.artist:"",stationId:currentStation?currentStation.id:"",stationName:currentStation?currentStation.name:"",source:source,pos:pos.cur,dur:pos.dur,vol:settings.vol};
+  const body={playing:!!playing,blocked:!!autoplayBlocked,title:current?current.title:"",artist:current?current.artist:"",stationId:currentStation?currentStation.id:"",stationName:currentStation?currentStation.name:"",source:source,pos:pos.cur,dur:pos.dur,vol:settings.vol};
   bridgeFetch("/state",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).catch(()=>{});
 }
 async function pollBridgeCommands(){
@@ -1394,7 +1480,7 @@ function runBridgeCommand(c){
   if(cmd==="next") nextTrack(true);
   else if(cmd==="prev") prevTrack();
   else if(cmd==="toggle") togglePlay();
-  else if(cmd==="play"){ if(!playing) togglePlay(); }
+  else if(cmd==="play"){ if(!playing) togglePlay(); probePlayback(playSeq); }
   else if(cmd==="pause"){ if(playing) togglePlay(); }
   else if(cmd==="stop"){ try{ if(yt&&ytReady) yt.pauseVideo(); }catch(e){} try{ audioEl.pause(); }catch(e){} playing=false; source="none"; updatePlayerUI(); $("#way-status").textContent="rádio parada"; }
   else if(cmd==="volume"){ settings.vol=Math.max(0,Math.min(100,Number(c.value)||0)); $("#vol").value=settings.vol; store.set("omarchy:settings",settings); try{ if(ytReady&&yt) yt.setVolume(settings.vol); }catch(e){} audioEl.volume=settings.vol/100; }

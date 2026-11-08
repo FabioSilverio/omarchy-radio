@@ -90,7 +90,7 @@ tocando no site.
 2. Rode qualquer comando `radio` (ex.: `radio status`). Ele sobe a ponte
    sozinho em `127.0.0.1:8766` e o site conecta em ~2s (aparece **ponte ✓**
    na barra do topo).
-3. Daí `radio status`, `prox`, `pausa`, `vol <n>`, `stop`, `jonas` e
+3. Daí `radio status`, `prox`, `pausa`, `play`, `vol <n>`, `stop`, `jonas` e
    `playlist <link>` controlam o player do navegador.
 
 Sem o site aberto (ou sem a ponte), o `radio` toca sozinho via mpv/yt-dlp, como
