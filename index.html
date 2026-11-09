@@ -443,8 +443,8 @@ let playHistory=store.get("omarchy:history",[]);
 let settings=Object.assign({backend:store.get("omarchy:backend",""),every:3,voice:"on",vinheta:true,vol:80,adfree:true},store.get("omarchy:settings",{}));
 const _qs=new URLSearchParams(location.search);
 if(_qs.get("backend")) settings.backend=_qs.get("backend").replace(/\/$/,"");
-/* limpa badIds vencidos (24h) */
-{ const now=Date.now(); Object.keys(badIds).forEach(k=>{ if(now-badIds[k]>864e5) delete badIds[k]; }); }
+/* limpa badIds vencidos (guarda o instante de expiracao) */
+{ const now=Date.now(); Object.keys(badIds).forEach(k=>{ if(now>badIds[k]) delete badIds[k]; }); }
 function favStation(){ return {id:"favs",name:"Favoritas",desc:"Tudo que você favoritou, em shuffle.",slogan:"Você está ouvindo suas Favoritas, na Omarchy Radio.",color:"#f38ba8",custom:false,tracks:favorites.slice()}; }
 function allStations(){
   const base=BUILTIN.map(s=>({...s,tracks:s.tracks.concat(extraTracks[s.id]||[])}));
@@ -494,11 +494,11 @@ function parseTrackLine(line,idx){
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function isBad(id){ return !!badIds[id]; }
 function isBanned(stationId,id){ return (banned[stationId]||[]).includes(id); }
-function markBad(id){ badIds[id]=Date.now(); store.set("omarchy:badids",badIds); }
+function markBad(id,ttl){ badIds[id]=Date.now()+(ttl===undefined?864e5:ttl); store.set("omarchy:badids",badIds); }
 /* ===== estado ===== */
 let yt=null, ytReady=false, currentStation=null, queue=[], historyStack=[], current=null;
 let source="none", playing=false, sinceVinheta=0, detailId=null, editingId=null, selectedColor=COLORS[0];
-let playSeq=0, watchdog=null, audioWatchdog=null, loadWatchdog=null, endedGuard=false, lastNavAt=0, sleepTimer=null, sleepDeadline=0;
+let playSeq=0, watchdog=null, audioWatchdog=null, loadWatchdog=null, endedGuard=false, lastNavAt=0, sleepTimer=null, sleepDeadline=0, ytLastError=0;
 let vinhetaTransition=null;
 let pendingAddTrack=null, ytSearchSeq=0, ytSearchTimer=null;
 const audioEl=$("#fallback-audio");
@@ -537,6 +537,7 @@ function onYtState(e){
 let ytFailCb=null;
 function onYtError(e){
   if(!current) return;
+  ytLastError=(e&&e.data)||0;
   log("youtube bloqueou esta faixa (cód. "+(e&&e.data)+") — tentando outra fonte","err");
   if(ytFailCb){ const cb=ytFailCb; ytFailCb=null; cb(); return; }
   if(current._replaced&&current._fallbackStarted){ failTrack(playSeq,{artist:current.artist,title:current.title,id:current._failedId}); return; }
@@ -760,6 +761,7 @@ function probePlayback(seq){
 function playTrack(track,station){
   const seq=++playSeq;
   probeEpoch++;
+  ytLastError=0;
   cancelVinhetaTransition();
   stopAllSources(); ytFailCb=null;
   current={artist:track.artist,title:track.title,id:track.id,stationId:station.id,stationName:station.name,_seq:seq,_counted:false,_replaced:false,_fallbackStarted:false,_failedId:track.id};
@@ -787,7 +789,7 @@ function playAudioUrl(url,seq,label,onFail){
   const fail=()=>{ if(failed||seq!==playSeq) return; failed=true; audioFailCb=null; clearTimeout(audioWatchdog); onFail(); };
   audioFailCb=fail;
   clearTimeout(audioWatchdog);
-  audioWatchdog=setTimeout(()=>{ if(seq===playSeq && audioEl.currentTime<1 && audioEl.readyState<3){ if(autoplayBlocked) return; log(label+" demorou demais — próxima fonte","warn"); fail(); } },15000);
+  audioWatchdog=setTimeout(()=>{ if(seq===playSeq && audioEl.currentTime<1 && audioEl.readyState<3){ if(autoplayBlocked) return; log(label+" demorou demais — próxima fonte","warn"); fail(); } },20000);
   try{
     audioEl.src=url; audioEl.volume=settings.vol/100;
     if(!hasActivation()){ audioEl.muted=true; startedMuted=true; }
@@ -842,9 +844,17 @@ async function tryReplacement(seq,track){
 }
 function failTrack(seq,track){
   if(seq!==playSeq) return;
-  markBad(track.id);
-  log("faixa pulada e marcada por 24h: "+track.title,"err");
-  toast("Faixa indisponível em todas as fontes — pulando: "+track.title);
+  /* embed desabilitado (101/150) nao e faixa ruim: o video existe, so nao pode ser
+     embutido. Marca por pouco tempo pra tentar de novo quando a fonte alternativa voltar. */
+  const soft=(ytLastError===101||ytLastError===150);
+  if(soft){
+    markBad(track.id,30*60*1000);
+    log("embed desabilitado e fonte alternativa fora — marcada por 30min (nao é falha real): "+track.title,"warn");
+  } else {
+    markBad(track.id);
+    log("faixa indisponível em todas as fontes — pulando (24h): "+track.title,"err");
+  }
+  toast("Faixa indisponível — pulando: "+track.title);
   renderGrid(); if(detailId) openDetail(detailId);
   setTimeout(()=>{ if(seq===playSeq) nextTrack(true); },400);
 }
@@ -856,12 +866,14 @@ function fetchTimeout(url,ms){
 let _altInstances=null;
 async function getAltInstances(){
   if(_altInstances) return _altInstances;
-  const hardcoded=["https://yewtu.be","https://inv.nadeko.net","https://invidious.nerdvpn.de","https://inv.us.projectsegfau.lt"];
+  /* instancias fixas em ordem de confiabilidade (yt.chocolatemoo53 e a unica viva agora) */
+  const hardcoded=["https://yt.chocolatemoo53.com","https://yewtu.be","https://inv.nadeko.net","https://invidious.nerdvpn.de","https://inv.us.projectsegfau.lt"];
   try{
     const r=await fetchTimeout("https://api.invidious.io/instances.json",8000);
     const data=await r.json();
     const list=data.filter(x=>x[1]&&x[1].api&&x[1].cors&&x[1].uri).map(x=>x[1].uri.replace(/\/$/,""));
-    _altInstances=shuffled(list).slice(0,3).concat(hardcoded).filter((v,i,a)=>a.indexOf(v)===i).slice(0,4);
+    /* vivas primeiro, depois as fixas; sem duplicar; guarda mais pra redundancia */
+    _altInstances=shuffled(list).concat(hardcoded).filter((v,i,a)=>a.indexOf(v)===i).slice(0,6);
   }catch(e){ _altInstances=hardcoded; }
   return _altInstances;
 }
@@ -879,7 +891,7 @@ function raceInstances(fn){
 }
 async function getAltAudio(id){
   return raceInstances(async inst=>{
-    const r=await fetchTimeout(inst+"/api/v1/videos/"+encodeURIComponent(id)+"?local=true",5000);
+    const r=await fetchTimeout(inst+"/api/v1/videos/"+encodeURIComponent(id)+"?local=true",8000);
     if(!r.ok) return null;
     const data=await r.json();
     const fmts=(data.adaptiveFormats||[]).filter(f=>(f.type||"").includes("audio")).sort((a,b)=>(b.bitrate||0)-(a.bitrate||0));
@@ -1245,7 +1257,7 @@ function openDetail(id){
   s.tracks.forEach((t,i)=>{
     const row=document.createElement("tr");
     if(current&&current.id===t.id) row.className="now"; else if(isBad(t.id)||isBanned(s.id,t.id)) row.className="bad";
-    row.innerHTML=`<td>${i+1}</td><td>${esc(t.title)}</td><td>${esc(t.artist)}</td><td>${isBanned(s.id,t.id)?"bloqueada por você":isBad(t.id)?"falhou (24h)":"ok"}</td>`;
+    row.innerHTML=`<td>${i+1}</td><td>${esc(t.title)}</td><td>${esc(t.artist)}</td><td>${isBanned(s.id,t.id)?"bloqueada por você":isBad(t.id)?"falhou (temporário)":"ok"}</td>`;
     row.onclick=()=>playStation(s,t); tb.appendChild(row);
   });
   $("#d-play").onclick=()=>playStation(s);

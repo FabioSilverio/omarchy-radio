@@ -152,3 +152,11 @@ test("radios novas Disney Channel e Top Hits Hoje no Spotify", () => {
   assert.ok(td.disney && td.disney.length >= 140, `disney 140+ faixas (${td.disney.length})`);
   assert.ok(td.spotify && td.spotify.length >= 100, `spotify 100+ faixas (${td.spotify.length})`);
 });
+
+test("fonte alternativa tem instancia viva e embed desabilitado nao marca como falha real", () => {
+  assert.ok(html.includes("yt.chocolatemoo53.com"), "instancia viva na lista de fallback");
+  assert.ok(html.includes("ytLastError"), "guarda o codigo de erro do youtube");
+  assert.ok(html.includes("ytLastError===101||ytLastError===150"), "embed desabilitado (101/150) tratado como soft");
+  assert.ok(html.includes("30*60*1000"), "marca temporaria de 30min pra embed desabilitado");
+  assert.ok(html.includes("function markBad(id,ttl)") || /function markBad\(id,ttl\)/.test(html), "markBad aceita TTL");
+});
