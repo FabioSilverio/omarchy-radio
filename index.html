@@ -1502,9 +1502,10 @@ function playNow(track){
 function queueAdd(track){
   delete badIds[track.id]; store.set("omarchy:badids",badIds);
   if(currentStation && current && !currentStation._oneshot){
-    queue.push(track); renderQueue();
-    toast("Na fila: "+track.title);
-    log("adicionada à fila: "+track.title,"ok");
+    /* "fila" = toca em seguida (na frente), nao no fim do shuffle */
+    queue.unshift(track); renderQueue();
+    toast("Vai tocar em seguida: "+track.title);
+    log("na fila (toca em seguida): "+track.title,"ok");
     prefetchNext();
   } else playNow(track);
 }

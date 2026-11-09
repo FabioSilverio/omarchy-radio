@@ -42,6 +42,10 @@ test("busca no youtube inteiro com acoes de tocar/fila/radio", () => {
   assert.ok(html.includes("function openAddToStation"), "adicionar a radio presente");
   assert.ok(html.includes("function matchTitle"), "matchTitle (evita musica errada) presente");
   assert.ok(html.includes("function isGenericTitle"), "isGenericTitle presente");
+  // "fila" = toca em seguida (na frente), nao no fim do shuffle
+  const qa = html.match(/function queueAdd\(track\)\{[\s\S]*?\n\}/);
+  assert.ok(qa, "queueAdd presente");
+  assert.ok(qa[0].includes("queue.unshift(track)"), "fila insere na frente (toca em seguida)");
 });
 
 test("ponte local com o terminal presente no site e no cli", () => {
