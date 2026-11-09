@@ -67,6 +67,7 @@ test("autoplay bloqueado nao derruba a radio e tem botao de liberar som", () => 
   assert.ok(html.includes("NotAllowedError"), "trata NotAllowedError do autoplay");
   assert.ok(html.includes('"touchstart"'), "destrava o som tambem no toque do celular");
   assert.ok(html.includes("else if(current && currentStation)"), "re-toca a faixa se o player nao estava pronto");
+  assert.ok(html.includes("ua.isActive"), "toque pra escolher a radio ja destrava o som (sem barra)");
   const cli = readFileSync(join(root, "cli", "radio"), "utf8");
   assert.ok(/^cmd_resume\(\)/m.test(cli), "cmd_resume no cli");
   assert.ok(cli.includes("play|retoma|continua|despausa"), "comando radio play existe");

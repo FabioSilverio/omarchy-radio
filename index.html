@@ -311,7 +311,7 @@ input[type=range]{accent-color:var(--mauve);width:90px}
 
 <div id="vinheta"></div>
 <div id="toast"></div>
-<div id="autoplay-bar"><span>O navegador bloqueou o som até você interagir com a página.</span><button id="autoplay-btn">▶ ativar som</button></div>
+<div id="autoplay-bar"><span>Som desligado até você tocar — regra do navegador no celular. Um toque e a rádio toca sozinha.</span><button id="autoplay-btn">▶ ligar som</button></div>
 <div id="yt-holder"><div id="yt-player"></div></div>
 <audio id="fallback-audio" preload="auto"></audio>
 <audio id="prefetch-audio" preload="metadata"></audio>
@@ -675,7 +675,13 @@ function markPlaying(){
 /* ===== autoplay: comando vindo do terminal nao conta como clique ===== */
 let autoplayBlocked=false, autoplayProbe=null, autoplayArmed=false, probeEpoch=0, startedMuted=false;
 function hasActivation(){
-  try{ return !(navigator.userActivation && navigator.userActivation.hasBeenActive===false); }catch(e){ return true; }
+  try{
+    const ua=navigator.userActivation;
+    if(!ua) return true; /* navegador sem a API: assume que pode tocar */
+    /* isActive = gesto acontecendo agora (ex.: toque pra escolher a radio);
+       hasBeenActive = ja interagiu alguma vez. Qualquer um dos dois destrava. */
+    return !!(ua.isActive || ua.hasBeenActive);
+  }catch(e){ return true; }
 }
 function showAutoplayBar(){
   autoplayBlocked=true;
