@@ -15,7 +15,7 @@ CUSTOM_URL="${RADIO_CUSTOM_URL:-https://fabiosilverio.github.io/omarchy-radio/cu
 CUSTOM_CACHE="$STATE/custom-stations.js"
 [ -f "$VOL_FILE" ] || echo 80 > "$VOL_FILE"
 
-STATIONS_HELP="jonas | tiktok | 2010 | tops | natal | olivia"
+STATIONS_HELP="jonas | tiktok | 2010 | tops | natal | olivia | disney | spotify"
 
 station_key() {
   case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
@@ -25,6 +25,8 @@ station_key() {
     tops|alltime|maiores|historicas) echo alltime ;;
     natal|natalino|natalinos|christmas|xmas|noel) echo natal ;;
     olivia|oliviarodrigo|rodrigo|olivia-rodrigo) echo oliviarodrigo ;;
+    disney|disneychannel|disney-channel|canaldisney|dc) echo disney ;;
+    spotify|tophits|topshoje|hitstoje|spotifyhoje|billboard|parada|paradas|topspotify) echo spotify ;;
     *) echo "" ;;
   esac
 }
@@ -37,6 +39,8 @@ station_name() {
     alltime) echo "Mais Ouvidas de Todos os Tempos" ;;
     natal) echo "Natal" ;;
     oliviarodrigo) echo "Olivia Rodrigo" ;;
+    disney) echo "Disney Channel" ;;
+    spotify) echo "Top Hits Hoje no Spotify" ;;
     *) echo "$1" ;;
   esac
 }
@@ -49,6 +53,8 @@ station_slogan() {
     alltime) echo "Você está ouvindo as Mais Ouvidas de Todos os Tempos, na Omarchy Radio." ;;
     natal) echo "Você está ouvindo Natal, na Omarchy Radio." ;;
     oliviarodrigo) echo "Você está ouvindo Olivia Rodrigo, na Omarchy Radio." ;;
+    disney) echo "Você está ouvindo Disney Channel, na Omarchy Radio." ;;
+    spotify) echo "Você está ouvindo Top Hits Hoje no Spotify, na Omarchy Radio." ;;
     *) echo "Você está ouvindo Omarchy Radio." ;;
   esac
 }
@@ -623,6 +629,8 @@ omarchy-radio no terminal — as rádios de $SITE_URL
   radio tops             toca Mais Ouvidas de Todos os Tempos
   radio natal            toca Natal (publicada)
   radio olivia           toca Olivia Rodrigo (publicada)
+  radio disney           toca Disney Channel
+  radio spotify          toca Top Hits Hoje no Spotify
   radio toca <busca>     toca a primeira música que bater com a busca
   radio busca <busca>    lista músicas que batem com a busca
   radio status           o que está tocando agora
@@ -648,11 +656,11 @@ case "${1:-}" in
   _bridge) cmd_bridge ;;
   ""|menu)
     if [ -t 0 ] && command -v fzf >/dev/null 2>&1; then
-      choice=$(printf 'jonas — Jonas Brothers Radio\ntiktok — Hits no TikTok Hoje\n2010 — Hits 2010\ntops — Mais Ouvidas de Todos os Tempos\nnatal — Natal\nolivia — Olivia Rodrigo\n' | fzf --prompt='radio> ' --height=10) || exit 0
+      choice=$(printf 'jonas — Jonas Brothers Radio\ntiktok — Hits no TikTok Hoje\n2010 — Hits 2010\ntops — Mais Ouvidas de Todos os Tempos\nnatal — Natal\nolivia — Olivia Rodrigo\ndisney — Disney Channel\nspotify — Top Hits Hoje no Spotify\n' | fzf --prompt='radio> ' --height=12) || exit 0
       cmd_start "${choice%% *}"
     else usage; fi ;;
   on|aleatoria|aleatorio|random|qualquer) cmd_radio_on ;;
-  jonas|tiktok|2010|hits2010|tops|alltime|natal|natalino|christmas|olivia|oliviarodrigo|rodrigo) cmd_start "$1" ;;
+  jonas|tiktok|2010|hits2010|tops|alltime|natal|natalino|christmas|olivia|oliviarodrigo|rodrigo|disney|disneychannel|spotify|tophits|billboard) cmd_start "$1" ;;
   tocar|toca) shift; cmd_start "${1:?uso: radio toca <estacao-ou-busca>}" ;;
   play|retoma|continua|despausa)
     if [ -n "${2:-}" ]; then shift; cmd_start "$1"; else cmd_resume; fi ;;

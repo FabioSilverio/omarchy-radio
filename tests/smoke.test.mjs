@@ -16,12 +16,12 @@ test("botao de favoritar usa SVG, nao o glifo de coracao da fonte", () => {
 });
 
 test("vinhetas geradas por IA existem e estao ligadas nas radios", () => {
-  for (const key of ["jonas", "tiktok", "hits2010", "alltime", "bed"]) {
+  for (const key of ["jonas", "tiktok", "hits2010", "alltime", "disney", "spotify", "bed"]) {
     const f = join(root, "assets", "vinhetas", `${key}.mp3`);
     assert.ok(existsSync(f), `${key}.mp3 existe`);
     assert.ok(statSync(f).size > 20000, `${key}.mp3 tem audio real (>20KB)`);
   }
-  for (const key of ["jonas", "tiktok", "hits2010", "alltime"]) {
+  for (const key of ["jonas", "tiktok", "hits2010", "alltime", "disney", "spotify"]) {
     assert.ok(html.includes(`assets/vinhetas/${key}.mp3`), `radio ${key} ligada a vinheta gerada`);
   }
   assert.ok(html.includes('id="vinheta-audio"'), "player de vinheta presente");
@@ -134,4 +134,17 @@ test("radio on sorteia entre tops, tiktok e natal", () => {
   assert.ok(cli.includes("natal|natalino"), "atalho natal no station_key");
   assert.ok(cli.includes("station_has_tracks"), "checa se a radio existe no terminal");
   assert.ok(html.includes("function findStation"), "site acha radio pelo nome (radios custom)");
+});
+
+test("radios novas Disney Channel e Top Hits Hoje no Spotify", () => {
+  assert.ok(html.includes('id:"disney"'), "radio Disney no site");
+  assert.ok(html.includes('id:"spotify"'), "radio Spotify no site");
+  const cli = readFileSync(join(root, "cli", "radio"), "utf8");
+  assert.ok(cli.includes("disney|disneychannel"), "atalho disney no CLI");
+  assert.ok(cli.includes("spotify|tophits"), "atalho spotify no CLI");
+  assert.ok(cli.includes('echo "Disney Channel"'), "nome Disney no CLI");
+  assert.ok(cli.includes('echo "Top Hits Hoje no Spotify"'), "nome Spotify no CLI");
+  const td = (() => { const w = {}; new Function("window", readFileSync(join(root, "tracks-data.js"), "utf8"))(w); return w.TRACKS_DATA; })();
+  assert.ok(td.disney && td.disney.length >= 140, `disney 140+ faixas (${td.disney.length})`);
+  assert.ok(td.spotify && td.spotify.length >= 100, `spotify 100+ faixas (${td.spotify.length})`);
 });

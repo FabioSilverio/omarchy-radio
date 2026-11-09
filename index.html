@@ -403,14 +403,18 @@ const FALLBACK_TRACKS = {
  jonas:[["Jonas Brothers","Sucker","CnAmeh0-E-U"],["Jonas Brothers","Burnin' Up","5KNEZJ6KkLI"],["Jonas Brothers","Year 3000","HSry5-qfVFs"],["Jonas Brothers","S.O.S.","EbBGkqll8lI"]],
  tiktok:[["Sabrina Carpenter","Espresso","eVli-tstM5E"],["ROSÉ & Bruno Mars","APT.","ekr2nIex040"],["Billie Eilish","BIRDS OF A FEATHER","V9PVRfjEBTI"]],
  hits2010:[["Lady Gaga","Bad Romance","qrO4YZeyl0I"],["Ke$ha","TiK ToK","iP6XpLQM2Cs"],["Bruno Mars","Just The Way You Are","LjhCEhWiKXk"]],
- alltime:[["Luis Fonsi ft. Daddy Yankee","Despacito","kJQP7kiw5Fk"],["Ed Sheeran","Shape of You","JGwWNGJdvx8"],["Alan Walker","Faded","60ItHLz5WEA"]]};
+ alltime:[["Luis Fonsi ft. Daddy Yankee","Despacito","kJQP7kiw5Fk"],["Ed Sheeran","Shape of You","JGwWNGJdvx8"],["Alan Walker","Faded","60ItHLz5WEA"]],
+ disney:[["Hannah Montana","Best of Both Worlds","ZSGC3g-EWbw"],["High School Musical Cast","We're All in This Together","Bz73c8rz4QA"],["Demi Lovato","This Is Me","s27SNQ-My1U"]],
+ spotify:[["Ella Langley","Choosin' Texas","hLOheGDwD_0"],["Tate McRae","Housewife","DPEodkHzH-s"],["Taylor Swift","Patient Zero","BpR280fXISA"]]};
 const TD = (typeof window!=="undefined" && window.TRACKS_DATA) ? window.TRACKS_DATA : {};
 function tracksOf(key){ const t = TD[key] && TD[key].length ? TD[key] : FALLBACK_TRACKS[key]; return t.map(x=>({artist:x[0],title:x[1],id:x[2]})); }
 const BUILTIN = [
  {id:"jonas",name:"Jonas Brothers Radio",desc:"A discografia dos Jonas em shuffle infinito — álbuns, Nick Jonas, DNCE e os clássicos de 2007 ao comeback.",slogan:"Você está ouvindo Jonas Brothers Radio, na Omarchy Radio. Só os brothers, sem parar.",color:"#f38ba8",custom:false,vinhetaAudio:"assets/vinhetas/jonas.mp3",tracks:tracksOf("jonas")},
  {id:"tiktok",name:"Hits no TikTok Hoje",desc:"O que está bombando no feed agora, em rádio — sem precisar abrir o TikTok. Pop viral e refrão chiclete o dia todo.",slogan:"Você está ouvindo Hits no TikTok Hoje, na Omarchy Radio. Direto do seu feed, sem o feed.",color:"#94e2d5",custom:false,vinhetaAudio:"assets/vinhetas/tiktok.mp3",tracks:tracksOf("tiktok")},
  {id:"hits2010",name:"Hits 2010",desc:"A geração 2010 no talo: Gaga, Kesha, Eminem, Katy e Bruno Mars como tocava na FM na época do iPod.",slogan:"Você está ouvindo Hits 2010, na Omarchy Radio. De volta pra época do iPod.",color:"#fab387",custom:false,vinhetaAudio:"assets/vinhetas/hits2010.mp3",tracks:tracksOf("hits2010")},
- {id:"alltime",name:"Mais Ouvidas de Todos os Tempos",desc:"Os maiores hits da história do YouTube em shuffle. Números absurdos, refrões que todo mundo sabe de cor.",slogan:"Você está ouvindo as Mais Ouvidas de Todos os Tempos, na Omarchy Radio.",color:"#cba6f7",custom:false,vinhetaAudio:"assets/vinhetas/alltime.mp3",tracks:tracksOf("alltime")}
+ {id:"alltime",name:"Mais Ouvidas de Todos os Tempos",desc:"Os maiores hits da história do YouTube em shuffle. Números absurdos, refrões que todo mundo sabe de cor.",slogan:"Você está ouvindo as Mais Ouvidas de Todos os Tempos, na Omarchy Radio.",color:"#cba6f7",custom:false,vinhetaAudio:"assets/vinhetas/alltime.mp3",tracks:tracksOf("alltime")},
+ {id:"disney",name:"Disney Channel",desc:"Tudo que passou pelo Disney Channel entre 2005 e 2015: High School Musical, Hannah Montana, Camp Rock, Descendants e os artistas que começaram por lá.",slogan:"Você está ouvindo Disney Channel, na Omarchy Radio. Dos clássicos do Disney Channel direto pra sua rádio.",color:"#89b4fa",custom:false,vinhetaAudio:"assets/vinhetas/disney.mp3",tracks:tracksOf("disney")},
+ {id:"spotify",name:"Top Hits Hoje no Spotify",desc:"O top da Billboard agora, em rádio — o que está no topo das paradas e bombando no Spotify, em shuffle sem parar.",slogan:"Você está ouvindo Top Hits Hoje no Spotify, na Omarchy Radio. O top das paradas, agora.",color:"#f9e2af",custom:false,vinhetaAudio:"assets/vinhetas/spotify.mp3",tracks:tracksOf("spotify")}
 ];
 const COLORS=["#cba6f7","#89b4fa","#94e2d5","#a6e3a1","#fab387","#f9e2af","#f38ba8","#f5c2e7"];
 /* ===== radios publicadas (radio publicar) — aparecem em qualquer navegador ===== */
