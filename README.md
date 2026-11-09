@@ -70,6 +70,8 @@ radio 2010      # Hits 2010
 radio tops      # Mais Ouvidas de Todos os Tempos
 radio natal     # Natal (rádio publicada)
 radio olivia    # Olivia Rodrigo (rádio publicada)
+radio disney    # Disney Channel
+radio spotify   # Top Hits Hoje no Spotify
 radio sucker    # busca e toca a música (e segue na rádio dela)
 radio status    # o que está tocando
 radio prox      # próxima (já preparada, começa na hora)
